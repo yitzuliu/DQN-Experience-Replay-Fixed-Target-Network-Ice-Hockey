@@ -10,14 +10,14 @@
 - [✓] Understand observation space (game frames) and action space (joystick movements)
 
 ## Network Architecture
-- [ ] Define Q-network (input layer, hidden layers, output layer)
-- [ ] Initialize target network with the same weights as the Q-network
-- [ ] Set up optimizer (e.g., Adam) and loss function (e.g., MSE)
+- [✓] Define Q-network (input layer, hidden layers, output layer)
+- [✓] Initialize target network with the same weights as the Q-network
+- [✓] Set up optimizer (Adam) and loss function (MSE)
 
 ## Experience Replay
-- [ ] Create experience replay memory
-- [ ] Implement experience storage functionality (state, action, reward, next_state, done)
-- [ ] Implement random batch sampling functionality
+- [✓] Create experience replay memory
+- [✓] Implement experience storage functionality (state, action, reward, next_state, done)
+- [✓] Implement random batch sampling functionality
 
 ## Training Loop
 - [ ] Initialize environment
@@ -32,13 +32,13 @@
 - [ ] Periodically update target network (e.g., every N steps)
 
 ## ε-greedy Exploration
-- [ ] Implement ε-greedy strategy (random action with probability ε, best action with probability 1-ε)
-- [ ] Decay ε value as training progresses
+- [✓] Implement ε-greedy strategy (random action with probability ε, best action with probability 1-ε)
+- [✓] Decay ε value as training progresses
 
 ## Evaluation and Saving
 - [ ] Periodically evaluate model performance
-- [ ] Save model weights
-- [ ] Record training metrics (average reward, loss, etc.)
+- [✓] Save model weights
+- [✓] Record training metrics (average reward, loss, etc.)
 
 ## Debugging Tips
 - [ ] Ensure rewards are correctly set

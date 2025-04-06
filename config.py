@@ -23,7 +23,7 @@ RENDER_MODE = None  # Set to 'human' for visualization during evaluation
 # FRAME_SKIP = 4   # Number of frames to skip (action repeat)
 
 # DQN hyperparameters
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.0001  # Typical learning rate for Adam (smaller than SGD)
 GAMMA = 0.99  # Discount factor
 BATCH_SIZE = 32
 MEMORY_CAPACITY = 10000
