@@ -168,14 +168,11 @@ class DQNAgent:
         """
         Learn from a batch of experiences using Q-learning with target network
         
-        Following the steps:
-        1. Sample random minibatch from replay memory
-        2. Compute target Q-values using target network:
-           - If next state is terminal: target = reward
-           - Else: target = reward + γ * max_a' Q_target(next_state, a')
-        3. Compute loss as MSE between current Q-values and target Q-values
-        4. Update Q-network using gradient descent
-        5. Periodically update target network
+        This method implements:
+        - Sampling from replay memory [Pseudocode step 11]
+        - Computing target Q-values [Pseudocode step 12]
+        - Updating network via gradient descent [Pseudocode step 13]
+        - Updating target network periodically [Pseudocode step 14]
         
         Returns:
             float: Loss value or None if not enough samples

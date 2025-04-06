@@ -63,3 +63,37 @@
 - [✓] `utils.py` - Utility functions for data processing and visualization
 - [✓] `config.py` - Configuration parameters and hyperparameters
 - [✓] `logger.py` - Logging and metrics tracking
+
+## Pseudocode
+1. Initialize replay memory D with capacity N
+2. Initialize action-value network Q (θ₁) with random weights
+3. Initialize target network Q_target (θ₂) ← θ₁
+
+4. For each episode = 1 to M:
+    5. Initialize initial state S₁
+
+    6. For t = 1 to T:
+        7. With probability ε, select a random action Aₜ (exploration)
+        8. Otherwise, select Aₜ = argmaxₐ Q(Sₜ, a; θ₁) (exploitation)
+
+        9. Execute action Aₜ, observe reward Rₜ₊₁ and next state Sₜ₊₁
+
+        10. Store transition (Sₜ, Aₜ, Rₜ₊₁, Sₜ₊₁) into replay buffer D
+
+        11. Sample a random minibatch of transitions (Sⱼ, Aⱼ, Rⱼ₊₁, Sⱼ₊₁) from D
+
+        12. For each sample j in the minibatch:
+            If Sⱼ₊₁ is terminal:
+                yⱼ ← Rⱼ₊₁
+            Else:
+                yⱼ ← Rⱼ₊₁ + γ * maxₐ' Q_target(Sⱼ₊₁, a'; θ₂)
+
+        13. Perform gradient descent step to minimize:
+            L = (yⱼ - Q(Sⱼ, Aⱼ; θ₁))²
+
+        14. Every C steps:
+            Update target network: θ₂ ← θ₁
+
+    End For
+End For
+

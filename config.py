@@ -23,22 +23,22 @@ RENDER_MODE = None  # Set to 'human' for visualization during evaluation
 # FRAME_SKIP = 4   # Number of frames to skip (action repeat)
 
 # DQN hyperparameters
-LEARNING_RATE = 0.0001  # Typical learning rate for Adam (smaller than SGD)
-GAMMA = 0.99  # Discount factor
-BATCH_SIZE = 32
-MEMORY_CAPACITY = 10000
+LEARNING_RATE = 0.0001  # Learning rate for optimizer
+GAMMA = 0.99            # Discount factor
+BATCH_SIZE = 32         # Size of minibatch sampled from replay memory
+MEMORY_CAPACITY = 10000 # Capacity of replay memory
 TARGET_UPDATE_FREQUENCY = 1000  # Update target network every N steps
-TRAINING_EPISODES = 10000
+TRAINING_EPISODES = 10000        # Total number of training episodes
 
 # Exploration parameters
-EPSILON_START = 1.0
-EPSILON_END = 0.1
+EPSILON_START = 1.0  # Initial exploration rate
+EPSILON_END = 0.1    # Final exploration rate
 EPSILON_DECAY = 1000000  # Number of steps for epsilon to decay from start to end
 
 # Training settings
-LEARNING_STARTS = 10000  # Number of steps before starting to train
-UPDATE_FREQUENCY = 4     # Number of actions between successive SGD updates
-SAVE_FREQUENCY = 1000    # Save model every N episodes
+LEARNING_STARTS = 10000   # Number of steps before starting to train
+UPDATE_FREQUENCY = 1      # Learn after every step (matches the pseudocode)
+SAVE_FREQUENCY = 1000     # Save model every N episodes
 
 # Evaluation settings
 EVAL_EPISODES = 10       # Number of episodes to evaluate on
