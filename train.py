@@ -46,6 +46,7 @@ import pickle
 import env_wrappers
 from dqn_agent import DQNAgent
 import config
+import utils
 
 def train(agent, env, num_episodes=config.TRAINING_EPISODES, render=False):
     """
@@ -170,15 +171,17 @@ def train(agent, env, num_episodes=config.TRAINING_EPISODES, render=False):
             with open(os.path.join(models_dir, "training_stats.pkl"), "wb") as f:
                 pickle.dump(stats, f)
             
-            # [OPTIONAL] Plot training progress
-            plot_training_progress(stats, os.path.join(models_dir, "training_progress.png"))
+            # 使用utils中的函數
+            utils.plot_training_metrics(stats, os.path.join(models_dir, "training_progress.png"))
             
-        # [OPTIONAL] Periodically evaluate the model
+        # [OPTIONAL] 定期評估模型 - 暫時注釋掉，但保留代碼以便將來啟用
+        '''
         if (episode + 1) % config.EVAL_FREQUENCY == 0:
             print("\nEvaluating current policy...")
             eval_rewards = evaluate(agent, env, num_episodes=config.EVAL_EPISODES)
             stats['eval_rewards'].append((episode + 1, np.mean(eval_rewards)))
             print(f"Evaluation: Avg Reward over {config.EVAL_EPISODES} episodes: {np.mean(eval_rewards):.2f}\n")
+        '''
     
     # [OPTIONAL] Save final model
     save_path = os.path.join(models_dir, "dqn_final.pth")
@@ -192,98 +195,6 @@ def train(agent, env, num_episodes=config.TRAINING_EPISODES, render=False):
     print(f"Final average reward (100 episodes): {np.mean(stats['episode_rewards'][-100:]):.2f}")
     
     return stats
-
-# [OPTIONAL] Evaluation function - 用於定期評估代理，不在原始偽代碼中
-def evaluate(agent, env, num_episodes=5, render=False):
-    """
-    Evaluate a trained agent over several episodes
-    
-    Args:
-        agent: The trained DQN agent
-        env: The environment to evaluate in
-        num_episodes: Number of episodes to evaluate
-        render: Whether to render the environment during evaluation
-        
-    Returns:
-        list: Rewards for each evaluation episode
-    """
-    rewards = []
-    
-    for episode in range(num_episodes):
-        state, _ = env.reset()
-        episode_reward = 0
-        done = False
-        
-        while not done:
-            # Select action (no exploration during evaluation)
-            action = agent.select_action(state, evaluate=True)
-            
-            # Execute action
-            next_state, reward, terminated, truncated, _ = env.step(action)
-            done = terminated or truncated
-            
-            # Update state and reward
-            state = next_state
-            episode_reward += reward
-            
-            # Render if requested
-            if render:
-                env.render()
-        
-        rewards.append(episode_reward)
-        print(f"Evaluation Episode {episode+1}/{num_episodes} | Reward: {episode_reward:.2f}")
-    
-    return rewards
-
-# [OPTIONAL] Visualization function - 用於繪製訓練進度圖表，不在原始偽代碼中
-def plot_training_progress(stats, save_path=None):
-    """
-    Plot training metrics
-    
-    Args:
-        stats: Dictionary containing training statistics
-        save_path: Path to save the plot, or None to display
-    """
-    plt.figure(figsize=(15, 10))
-    
-    # Plot rewards
-    plt.subplot(2, 2, 1)
-    plt.plot(stats['episode_rewards'])
-    plt.title('Episode Rewards')
-    plt.xlabel('Episode')
-    plt.ylabel('Reward')
-    
-    # Plot smoothed rewards
-    plt.subplot(2, 2, 2)
-    window_size = min(100, len(stats['episode_rewards']))
-    if window_size > 0:
-        smoothed_rewards = np.convolve(stats['episode_rewards'], np.ones(window_size)/window_size, mode='valid')
-        plt.plot(smoothed_rewards)
-        plt.title(f'Smoothed Rewards (Window={window_size})')
-        plt.xlabel('Episode')
-        plt.ylabel('Smoothed Reward')
-    
-    # Plot losses
-    plt.subplot(2, 2, 3)
-    plt.plot(stats['episode_losses'])
-    plt.title('Average Loss per Episode')
-    plt.xlabel('Episode')
-    plt.ylabel('Loss')
-    
-    # Plot epsilon decay
-    plt.subplot(2, 2, 4)
-    plt.plot(stats['epsilons'])
-    plt.title('Exploration Rate (Epsilon)')
-    plt.xlabel('Episode')
-    plt.ylabel('Epsilon')
-    
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path)
-        plt.close()
-    else:
-        plt.show()
 
 if __name__ == "__main__":
     # Create environment
@@ -300,8 +211,8 @@ if __name__ == "__main__":
     try:
         stats = train(agent, env)
         
-        # [OPTIONAL] Plot final training progress
-        plot_training_progress(stats)
+        # 使用utils中的函數
+        utils.plot_training_metrics(stats)
         
     except KeyboardInterrupt:
         print("\nTraining interrupted by user")

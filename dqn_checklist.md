@@ -20,37 +20,37 @@
 - [✓] Implement random batch sampling functionality
 
 ## Training Loop
-- [ ] Initialize environment
-- [ ] Execute actions and collect experiences
-- [ ] Store experiences in memory
-- [ ] When memory is sufficiently large, begin training:
-  - [ ] Sample batch data from memory
-  - [ ] Calculate current Q-values
-  - [ ] Calculate target Q-values (using target network)
-  - [ ] Calculate loss
-  - [ ] Backpropagate to update Q-network
-- [ ] Periodically update target network (e.g., every N steps)
+- [✓] Initialize environment
+- [✓] Execute actions and collect experiences
+- [✓] Store experiences in memory
+- [✓] When memory is sufficiently large, begin training:
+  - [✓] Sample batch data from memory
+  - [✓] Calculate current Q-values
+  - [✓] Calculate target Q-values (using target network)
+  - [✓] Calculate loss
+  - [✓] Backpropagate to update Q-network
+- [✓] Periodically update target network (e.g., every N steps)
 
 ## ε-greedy Exploration
 - [✓] Implement ε-greedy strategy (random action with probability ε, best action with probability 1-ε)
 - [✓] Decay ε value as training progresses
 
 ## Evaluation and Saving
-- [ ] Periodically evaluate model performance
+- [✓] Periodically evaluate model performance (目前已實現但暫時注釋掉)
 - [✓] Save model weights
 - [✓] Record training metrics (average reward, loss, etc.)
 
 ## Debugging Tips
-- [ ] Ensure rewards are correctly set
-- [ ] Monitor if training loss decreases normally
-- [ ] Check if Q-values increase reasonably
-- [ ] Ensure target network is updated periodically
+- [✓] Ensure rewards are correctly set
+- [✓] Monitor if training loss decreases normally
+- [✓] Check if Q-values increase reasonably
+- [✓] Ensure target network is updated periodically
 
 ## Ice Hockey Specific Considerations
 - [✓] Understand the game dynamics (controlling players, scoring goals)
-- [ ] Consider preprocessing game frames (grayscale conversion, resizing, normalization)
-- [ ] Account for sparse rewards (goals are infrequent)
-- [ ] Consider using reward shaping if training is slow
+- [✓] Consider preprocessing game frames (grayscale conversion, resizing, normalization)
+- [✓] Account for sparse rewards (goals are infrequent)
+- [ ] Consider using reward shaping if training is slow (可選，如需要可實現)
 
 ## Suggested Project Files
 - [✓] `main.py` - Main script to run the training process

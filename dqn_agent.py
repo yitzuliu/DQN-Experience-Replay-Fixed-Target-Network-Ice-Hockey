@@ -54,26 +54,32 @@ class DQNAgent:
     Deep Q-Network agent for playing Atari Ice Hockey
     Following the original DQN algorithm
     """
-    def __init__(self, env, device="cuda" if torch.cuda.is_available() else "cpu"):
+    def __init__(self, env, device=None):
         """
         Initialize the DQN agent
         
         Args:
             env: Gymnasium environment
-            device: Device to run the model on ("cuda" or "cpu")
+            device: Device to run the model on ("cuda", "mps", or "cpu")
         """
         # Environment and device settings
         self.env = env                        
-        self.device = device              
+        
+        # 自動選擇設備，如果沒有指定
+        if device is None:
+            import utils
+            self.device = utils.setup_device()
+        else:
+            self.device = device
+            
         self.action_size = env.action_space.n 
         
         # Initialize Q-Network (policy network)
         # This network is used to select actions and is updated through learning
-        self.q_network = create_q_network(env).to(device)
+        self.q_network = create_q_network(env).to(self.device)
         
         # Initialize Target Network with same weights
-        # This network provides stable targets for Q-learning
-        self.target_network = create_q_network(env).to(device)
+        self.target_network = create_q_network(env).to(self.device)
         self.update_target_network()  # Copy initial weights from Q-Network
         self.target_network.eval()    # Set to evaluation mode (no gradients needed)
         
