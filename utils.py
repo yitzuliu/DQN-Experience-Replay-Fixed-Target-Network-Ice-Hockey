@@ -20,30 +20,18 @@ def setup_device():
     """
     if torch.cuda.is_available():
         device = torch.device("cuda")
-        # 獲取GPU信息
         gpu_name = torch.cuda.get_device_name(0)
-        print(f"使用 CUDA GPU: {gpu_name}")
-        
-        # 設置CUDA參數以優化性能
+        gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)  # Convert to GB
+        print(f"Using CUDA GPU: {gpu_name} ({gpu_mem:.2f} GB)")
         torch.backends.cudnn.benchmark = True
-        
+        return device
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available() and platform.processor() == 'arm':
+        device = torch.device("mps")
+        print("Using M-series Mac GPU (Metal)")
         return device
     else:
-        # 檢查是否為M系列Mac
-        try:
-            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() and platform.processor() == 'arm':
-                device = torch.device("mps")
-                print("使用 M系列 Mac GPU (Metal)")
-                return device
-        except:
-            pass
-        
-        # 使用CPU
-        cpu_count = mp.cpu_count()
-        print(f"使用 CPU: {cpu_count} 核心")
-        
-        # 設置線程數以更好地利用CPU
-        torch.set_num_threads(cpu_count)
+        print(f"Using CPU: {os.cpu_count()} cores")
+        torch.set_num_threads(os.cpu_count())
         return torch.device("cpu")
 
 def plot_training_metrics(stats, save_dir="plots"):
