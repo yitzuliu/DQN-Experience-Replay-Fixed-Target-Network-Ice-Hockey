@@ -14,9 +14,10 @@
 
 # Environment settings
 ENV_NAME = 'ALE/IceHockey-v5'
-RENDER_MODE = "human"  # Enable visualization of the environment
+RENDER_MODE = None  # Set to None for faster training (no visualization); use "human" for visualization
 ACTION_SPACE_SIZE = 18  # IceHockey has 18 possible actions
 OBS_TYPE = "rgb"  # Default observation type for ALE/IceHockey-v5
+MEMORY_IMPLEMENTATION = "numpy"  # Use numpy for replay memory
 
 # Frame processing
 FRAME_WIDTH = 84  # Downscaled from native 160
@@ -40,7 +41,7 @@ EPSILON_DECAY = 1000000  # Number of steps for epsilon to decay from start to en
 # Training settings
 LEARNING_STARTS = 10000   # Number of steps before starting to train
 UPDATE_FREQUENCY = 1      # Learn after every step (matches the pseudocode)
-SAVE_FREQUENCY = 1000     # Save model every N episodes
+SAVE_FREQUENCY = 50     # Save model every N episodes
 
 # Evaluation settings
 EVAL_EPISODES = 10       # Number of episodes to evaluate on

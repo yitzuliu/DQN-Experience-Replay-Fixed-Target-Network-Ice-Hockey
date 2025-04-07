@@ -37,12 +37,13 @@
 import random      # For random sampling
 import numpy as np  # For array operations
 import torch       # PyTorch library for tensor operations
+import config      # Configuration file for hyperparameters
 
 class ListReplayMemory:
     """
     Experience Replay Memory using a simple Python list.
     """
-    def __init__(self, capacity):
+    def __init__(self, capacity, state_shape=None, action_dim=1):
         """
         Initialize the replay memory with a fixed capacity.
         
@@ -219,7 +220,7 @@ class ArrayReplayMemory:
 # You can modify this variable to choose which implementation to use:
 # - 'list': Simple list-based implementation (good for understanding)
 # - 'numpy': NumPy array-based implementation (more efficient for large-scale training)
-MEMORY_IMPLEMENTATION = 'list'  # Using NumPy for better performance
+MEMORY_IMPLEMENTATION = config.MEMORY_IMPLEMENTATION  # Using NumPy for better performance
 
 # Set ReplayMemory class based on the chosen implementation
 if MEMORY_IMPLEMENTATION == 'list':

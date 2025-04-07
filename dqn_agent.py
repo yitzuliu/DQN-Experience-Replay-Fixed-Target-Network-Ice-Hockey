@@ -65,7 +65,7 @@ class DQNAgent:
         # Environment and device settings
         self.env = env                        
         
-        # 自動選擇設備，如果沒有指定
+        # Auto-select device if not specified
         if device is None:
             import utils
             self.device = utils.setup_device()
@@ -89,9 +89,11 @@ class DQNAgent:
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=config.LEARNING_RATE)
         
         # Initialize experience replay memory
-        if hasattr(ReplayMemory, 'state_shape'):  # Check memory implementation type
+        if config.MEMORY_IMPLEMENTATION == 'numpy':  # Check memory implementation type
+            # If using numpy-based memory, we need to specify the state shape
             state_shape = env.observation_space.shape
             self.memory = ReplayMemory(capacity=config.MEMORY_CAPACITY, state_shape=state_shape)
+
         else:
             self.memory = ReplayMemory(capacity=config.MEMORY_CAPACITY)
         

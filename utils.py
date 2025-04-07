@@ -61,6 +61,11 @@ def plot_training_metrics(stats, save_dir="plots"):
     # Create directory if it doesn't exist
     os.makedirs(save_dir, exist_ok=True)
     
+    # Add debugging information
+    print(f"Plotting metrics to directory: {save_dir}")
+    print(f"Available statistics: {list(stats.keys())}")
+    print(f"Number of data points: {len(stats['episode_rewards'])}")
+    
     # ===== Plot 1: Rewards =====
     plt.figure(figsize=(12, 6))
     

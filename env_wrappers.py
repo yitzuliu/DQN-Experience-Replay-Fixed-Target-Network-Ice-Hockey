@@ -216,8 +216,8 @@ def make_env(env_name=config.ENV_NAME, render_mode=config.RENDER_MODE):
         gym.Env: A wrapped gymnasium environment ready for DQN training
     """
     try:
-        # Try to create the base environment
-        env = gym.make(env_name, render_mode=render_mode)
+        # Try to create the base environment with lowest difficulty (0)
+        env = gym.make(env_name, render_mode=render_mode, difficulty=0, mode=0)
         
         # Apply wrappers in standard order
         
