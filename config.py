@@ -14,13 +14,15 @@
 
 # Environment settings
 ENV_NAME = 'ALE/IceHockey-v5'
-RENDER_MODE = None  # Set to 'human' for visualization during evaluation
+RENDER_MODE = "human"  # Enable visualization of the environment
+ACTION_SPACE_SIZE = 18  # IceHockey has 18 possible actions
+OBS_TYPE = "rgb"  # Default observation type for ALE/IceHockey-v5
 
-# # Frame processing
-# FRAME_WIDTH = 84
-# FRAME_HEIGHT = 84
-# FRAME_STACK = 4  # Number of frames to stack together
-# FRAME_SKIP = 4   # Number of frames to skip (action repeat)
+# Frame processing
+FRAME_WIDTH = 84  # Downscaled from native 160
+FRAME_HEIGHT = 84  # Downscaled from native 210
+FRAME_STACK = 4  # Number of frames to stack together
+FRAME_SKIP = 4   # Matches the environment's built-in frameskip for v5
 
 # DQN hyperparameters
 LEARNING_RATE = 0.0001  # Learning rate for optimizer

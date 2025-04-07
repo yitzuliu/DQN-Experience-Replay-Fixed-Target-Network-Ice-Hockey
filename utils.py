@@ -8,30 +8,46 @@ import multiprocessing as mp  # 用於獲取CPU核心數
 
 def setup_device():
     """
-    設置並回傳最適合當前環境的計算設備
-    
-    自動檢測並選擇:
-    - CUDA GPU (如果可用)
-    - Mac M系列晶片的 Metal Performance Shaders (MPS)
-    - CPU (作為後備選項)
-    
+   Set up and return the most suitable computation device.
+
+    Automatically detects and selects:
+    - CUDA GPU (if available)
+    - Mac M-series chip Metal Performance Shaders (MPS)
+    - CPU (as a fallback option)
+
+    Ensures at least one CPU core is left free for other users.
+
     Returns:
-        torch.device: 計算設備
+        torch.device: Computation device
     """
     if torch.cuda.is_available():
-        device = torch.device("cuda")
-        gpu_name = torch.cuda.get_device_name(0)
-        gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)  # Convert to GB
-        print(f"Using CUDA GPU: {gpu_name} ({gpu_mem:.2f} GB)")
+        num_gpus = torch.cuda.device_count()
+        if num_gpus > 1:
+            # Use the first available GPU, leaving at least one free
+            device = torch.device("cuda:0")
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)  # Convert to GB
+            print(f"Using CUDA GPU: {gpu_name} ({gpu_mem:.2f} GB), leaving {num_gpus - 1} GPU(s) free")
+        else:
+            print("Only one GPU available, using it fully")
+            device = torch.device("cuda")
         torch.backends.cudnn.benchmark = True
         return device
+    
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available() and platform.processor() == 'arm':
         device = torch.device("mps")
         print("Using M-series Mac GPU (Metal)")
         return device
+    
     else:
-        print(f"Using CPU: {os.cpu_count()} cores")
-        torch.set_num_threads(os.cpu_count())
+        # Leave at least one CPU core free
+        num_cores = os.cpu_count()
+        if num_cores > 1:
+            torch.set_num_threads(num_cores - 1)
+            print(f"Using CPU: {num_cores - 1} cores (1 core left free)")
+        else:
+            torch.set_num_threads(1)
+            print("Using CPU: 1 core (no cores left free)")
         return torch.device("cpu")
 
 def plot_training_metrics(stats, save_dir="plots"):

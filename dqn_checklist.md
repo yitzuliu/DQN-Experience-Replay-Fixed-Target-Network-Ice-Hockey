@@ -9,6 +9,32 @@
   - [✓] Apply necessary wrappers for Atari (frame stacking, frame skipping, etc.)
 - [✓] Understand observation space (game frames) and action space (joystick movements)
 
+## Environment Preprocessing Steps
+- [✓] Frame Preprocessing
+  - [✓] **Grayscale Conversion**: Convert RGB frames to grayscale to reduce dimensionality
+  - [✓] **Image Resizing**: Resize frames from native resolution (210x160) to 84x84 for efficiency
+  - [✓] **Pixel Normalization**: Normalize pixel values (typically to range [0,1])
+  - [✓] **Frame Stacking**: Stack multiple frames (typically 4) to capture temporal information
+  
+- [✓] Action Space Handling
+  - [✓] **Frameskip**: Skip frames to speed up training (typically 4 frames)
+  - [✓] **Max-pooling**: Take maximum pixel value over skipped frames to capture fast movements
+
+- [✓] Reward and Signal Processing
+  - [✓] **Reward Clipping**: Clip rewards to {-1, 0, 1} to stabilize training
+  - [✓] **Episode Termination**: Handle episode termination signals properly
+  - [✓] **Life Loss Detection**: Treat loss of life as episode termination (optional)
+
+- [✓] Performance Optimizations
+  - [✓] **Fire on Reset**: Automatically press FIRE at the start of episodes when needed
+  - [✓] **No-op Starts**: Begin episodes with random number of no-operations for exploration
+  - [✓] **Memory-efficient Frame Processing**: Avoid unnecessary memory allocation
+
+- [✓] Wrapper Implementation
+  - [✓] Create custom wrapper classes inheriting from `gymnasium.Wrapper`
+  - [✓] Chain wrappers in appropriate order
+  - [✓] Test wrapped environment to verify correct implementation
+
 ## Network Architecture
 - [✓] Define Q-network (input layer, hidden layers, output layer)
 - [✓] Initialize target network with the same weights as the Q-network
@@ -36,7 +62,7 @@
 - [✓] Decay ε value as training progresses
 
 ## Evaluation and Saving
-- [✓] Periodically evaluate model performance (目前已實現但暫時注釋掉)
+- [✓] Periodically evaluate model performance (currently implemented but temporarily commented out)
 - [✓] Save model weights
 - [✓] Record training metrics (average reward, loss, etc.)
 
@@ -50,7 +76,7 @@
 - [✓] Understand the game dynamics (controlling players, scoring goals)
 - [✓] Consider preprocessing game frames (grayscale conversion, resizing, normalization)
 - [✓] Account for sparse rewards (goals are infrequent)
-- [ ] Consider using reward shaping if training is slow (可選，如需要可實現)
+- [ ] Consider using reward shaping if training is slow (optional, can be implemented if needed)
 
 ## Suggested Project Files
 - [✓] `main.py` - Main script to run the training process
