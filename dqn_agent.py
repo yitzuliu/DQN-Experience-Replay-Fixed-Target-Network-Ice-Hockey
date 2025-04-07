@@ -89,11 +89,10 @@ class DQNAgent:
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=config.LEARNING_RATE)
         
         # Initialize experience replay memory
-        if config.MEMORY_IMPLEMENTATION == 'numpy':  # Check memory implementation type
-            # If using numpy-based memory, we need to specify the state shape
+        if config.MEMORY_IMPLEMENTATION == 'numpy' or config.MEMORY_IMPLEMENTATION == 'optimized':
+            # Support for optimized memory implementation
             state_shape = env.observation_space.shape
             self.memory = ReplayMemory(capacity=config.MEMORY_CAPACITY, state_shape=state_shape)
-
         else:
             self.memory = ReplayMemory(capacity=config.MEMORY_CAPACITY)
         
@@ -111,6 +110,9 @@ class DQNAgent:
         # Metrics tracking
         self.losses = []
         self.q_values = []
+        
+        # Gradient accumulation steps counter
+        self.accumulation_steps = 0
     
     def select_action(self, state, evaluate=False):
         """
@@ -172,7 +174,7 @@ class DQNAgent:
         """
         self.memory.add(state, action, reward, next_state, done)
     
-    def learn(self):
+    def learn(self, reset_grads=True):
         """
         Learn from a batch of experiences using Q-learning with target network
         
@@ -181,7 +183,8 @@ class DQNAgent:
         - Computing target Q-values [Pseudocode step 12]
         - Updating network via gradient descent [Pseudocode step 13]
         - Updating target network periodically [Pseudocode step 14]
-        
+        Args:
+            reset_grads: Whether to reset gradients (True for first accumulation step)
         Returns:
             float: Loss value or None if not enough samples
         """
@@ -192,12 +195,19 @@ class DQNAgent:
         # 1. Sample random minibatch from replay memory
         states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
         
-        # Move data to device
-        states = states.to(self.device)
-        actions = actions.to(self.device)
-        rewards = rewards.to(self.device)
-        next_states = next_states.to(self.device)
-        dones = dones.to(self.device)
+        # Convert to PyTorch tensors and move to device
+        if self.device.type == 'cuda':
+            states = states.to(self.device, non_blocking=True)
+            actions = actions.to(self.device, non_blocking=True)
+            rewards = rewards.to(self.device, non_blocking=True)
+            next_states = next_states.to(self.device, non_blocking=True)
+            dones = dones.to(self.device, non_blocking=True)
+        else:
+            states = states.to(self.device)
+            actions = actions.to(self.device)
+            rewards = rewards.to(self.device)
+            next_states = next_states.to(self.device)
+            dones = dones.to(self.device)
         
         # 2. Compute current Q-values: Q(Sⱼ, Aⱼ; θ₁)
         current_q_values = self.q_network(states).gather(1, actions)
@@ -214,26 +224,43 @@ class DQNAgent:
         # 4. Compute loss: L = (yⱼ - Q(Sⱼ, Aⱼ; θ₁))²
         loss = nn.functional.mse_loss(current_q_values, target_q_values)
         
-        # 5. Perform gradient descent step
-        self.optimizer.zero_grad()  # Clear previous gradients
-        loss.backward()             # Compute gradients
-        
-        # Optional: clip gradients to stabilize training
-        for param in self.q_network.parameters():
-            param.grad.data.clamp_(-1, 1)
+        # 5. Perform gradient descent with accumulation
+        # Only reset gradients on the first accumulation step
+        if reset_grads:
+            self.optimizer.zero_grad()
             
-        self.optimizer.step()       # Update weights
+        # Scale loss to maintain mathematical equivalence
+        # If using N batches, each batch's gradient should be scaled to 1/N
+        scaled_loss = loss / config.GRADIENT_ACCUMULATION_STEPS
         
-        # Record loss for monitoring
+        # Backpropagate to compute gradients (but do not update yet)
+        scaled_loss.backward()
+        
+        # Record accumulation steps
+        self.accumulation_steps += 1
+        
+        # 6. Update weights only when accumulation steps are reached
+        if self.accumulation_steps >= config.GRADIENT_ACCUMULATION_STEPS:
+            # Gradient clipping (if not None)
+            for param in self.q_network.parameters():
+                if param.grad is not None:
+                    param.grad.data.clamp_(-1, 1)
+            
+            # Update parameters
+            self.optimizer.step()
+            self.optimizer.zero_grad()  # Reset gradients
+            self.accumulation_steps = 0  # Reset counter
+            
+            # Increment total steps counter
+            self.steps_done += 1
+            
+            # 7. Every C steps, update target network: θ₂ ← θ₁
+            if self.steps_done % self.target_update_frequency == 0:
+                self.update_target_network()
+        
+        # Record loss for monitoring (used unscaled loss)
         self.losses.append(loss.item())
         
-        # Increment total steps counter
-        self.steps_done += 1
-        
-        # 6. Every C steps, update target network: θ₂ ← θ₁
-        if self.steps_done % self.target_update_frequency == 0:
-            self.update_target_network()
-            
         return loss.item()
     
     def update_target_network(self):

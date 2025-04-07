@@ -222,7 +222,7 @@ def make_env(env_name=config.ENV_NAME, render_mode=config.RENDER_MODE):
         # Apply wrappers in standard order
         
         # 1. NoopResetEnv: Start episodes with random number of no-ops
-        env = NoopResetEnv(env, noop_max=30)
+        env = NoopResetEnv(env, noop_max=config.NOOP_MAX)
         
         # 2. MaxAndSkipEnv: Skip frames but retain max values to capture fast movements
         env = MaxAndSkipEnv(env, skip=config.FRAME_SKIP)

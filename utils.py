@@ -8,15 +8,15 @@ import multiprocessing as mp  # 用於獲取CPU核心數
 
 def setup_device():
     """
-   Set up and return the most suitable computation device.
-
+    Set up and return the most suitable computation device.
+    
     Automatically detects and selects:
     - CUDA GPU (if available)
     - Mac M-series chip Metal Performance Shaders (MPS)
     - CPU (as a fallback option)
-
-    Ensures at least one CPU core is left free for other users.
-
+    Args:
+        reserve_gpus (int): Number of GPUs to leave free when multiple GPUs are available
+    
     Returns:
         torch.device: Computation device
     """

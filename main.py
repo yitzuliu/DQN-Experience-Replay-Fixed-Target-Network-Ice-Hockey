@@ -47,18 +47,8 @@ def setup_environment_and_agent(args):
     print(f"Observation space: {env.observation_space}")
     print(f"Action space: {env.action_space}")
     
-    # Determine device
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        gpu_name = torch.cuda.get_device_name(0)
-        gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)  # Convert to GB
-        print(f"Using CUDA GPU: {gpu_name} ({gpu_mem:.2f} GB)")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-        print("Using M-series Mac GPU (Metal)")
-    else:
-        device = torch.device("cpu")
-        print(f"Using CPU: {os.cpu_count()} cores")
+    # Setup device
+    device = utils.setup_device()
     
     # Create agent
     agent = DQNAgent(env, device=device)

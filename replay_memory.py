@@ -215,11 +215,88 @@ class ArrayReplayMemory:
         return len(self) >= batch_size
 
 
+class OptimizedArrayReplayMemory:
+    """
+    Memory-optimized experience replay implementation.
+    """
+    def __init__(self, capacity, state_shape, action_dim=1):
+        """
+        Initialize optimized replay memory.
+        
+        Args:
+            capacity (int): Maximum number of transitions to store
+            state_shape (tuple): Shape of state observations
+            action_dim (int): Dimension of action space (usually 1)
+        """
+        self.capacity = capacity
+        self.state_shape = state_shape
+        self.counter = 0  # Total number of experiences added
+        self.position = 0  # Current position in circular buffer
+        
+        # Use uint8 for states (save 75% memory compared to float32)
+        # Store as single array instead of two separate arrays
+        self.states = np.zeros((capacity + 1, *state_shape), dtype=np.uint8)
+        
+        # Use smaller data types where possible
+        self.actions = np.zeros(capacity, dtype=np.uint8)  # Actions are typically < 256
+        self.rewards = np.zeros(capacity, dtype=np.float16)  # Half precision for rewards
+        self.indices = np.zeros(capacity, dtype=np.uint32)   # Indices to next states
+        self.dones = np.zeros(capacity, dtype=np.bool_)     # Boolean for done flag
+        
+    def add(self, state, action, reward, next_state, done):
+        # Convert float32 state to uint8 for storage (multiply by 255)
+        state_uint8 = np.clip(state * 255, 0, 255).astype(np.uint8)
+        next_state_uint8 = np.clip(next_state * 255, 0, 255).astype(np.uint8)
+        
+        # Store current state
+        self.states[self.position] = state_uint8
+        
+        # Store next state in the next position (cyclically)
+        next_position = (self.position + 1) % self.capacity
+        self.states[next_position] = next_state_uint8
+        
+        # Store transition data
+        self.actions[self.position] = action
+        self.rewards[self.position] = reward
+        self.indices[self.position] = next_position  # Link to next_state
+        self.dones[self.position] = done
+        
+        # Update position and counter
+        self.position = next_position
+        self.counter = min(self.counter + 1, self.capacity)
+        
+    def sample(self, batch_size):
+        indices = np.random.choice(self.counter, batch_size, replace=False)
+        
+        # Get corresponding next state indices
+        next_indices = self.indices[indices]
+        
+        # Convert uint8 back to float32 normalized [0,1] range when sampling
+        states = self.states[indices].astype(np.float32) / 255.0
+        next_states = self.states[next_indices].astype(np.float32) / 255.0
+        
+        # Convert to PyTorch tensors
+        states = torch.FloatTensor(states)
+        actions = torch.LongTensor(self.actions[indices]).unsqueeze(1)
+        rewards = torch.FloatTensor(self.rewards[indices]).unsqueeze(1)
+        next_states = torch.FloatTensor(next_states)
+        dones = torch.FloatTensor(self.dones[indices].astype(np.float32)).unsqueeze(1)
+        
+        return states, actions, rewards, next_states, dones
+    
+    def __len__(self):
+        return self.counter
+    
+    def can_sample(self, batch_size):
+        return len(self) >= batch_size
+
+
 # Add a switch variable at the bottom to decide which implementation to use
 
 # You can modify this variable to choose which implementation to use:
 # - 'list': Simple list-based implementation (good for understanding)
 # - 'numpy': NumPy array-based implementation (more efficient for large-scale training)
+# - 'optimized': Optimized NumPy array-based implementation (memory efficient)
 MEMORY_IMPLEMENTATION = config.MEMORY_IMPLEMENTATION  # Using NumPy for better performance
 
 # Set ReplayMemory class based on the chosen implementation
@@ -227,8 +304,10 @@ if MEMORY_IMPLEMENTATION == 'list':
     ReplayMemory = ListReplayMemory
 elif MEMORY_IMPLEMENTATION == 'numpy':
     ReplayMemory = ArrayReplayMemory
+elif MEMORY_IMPLEMENTATION == 'optimized':
+    ReplayMemory = OptimizedArrayReplayMemory
 else:
-    raise ValueError(f"Unknown implementation: {MEMORY_IMPLEMENTATION}. Use 'list' or 'numpy'.")
+    raise ValueError(f"Unknown implementation: {MEMORY_IMPLEMENTATION}. Use 'list', 'numpy', or 'optimized'.")
 
 
 # Test code for this module - will only run when this file is executed directly
@@ -236,7 +315,10 @@ if __name__ == "__main__":
     # Create a replay memory with capacity 1,000,000
     if MEMORY_IMPLEMENTATION == 'list':
         memory = ReplayMemory(capacity=1000000)
-    else:  # numpy implementation needs state shape
+    elif MEMORY_IMPLEMENTATION == 'numpy':
+        STATE_SHAPE = (210, 160, 3)  # Example Atari frame size
+        memory = ReplayMemory(capacity=100, state_shape=STATE_SHAPE)
+    elif MEMORY_IMPLEMENTATION == 'optimized':
         STATE_SHAPE = (210, 160, 3)  # Example Atari frame size
         memory = ReplayMemory(capacity=100, state_shape=STATE_SHAPE)
     

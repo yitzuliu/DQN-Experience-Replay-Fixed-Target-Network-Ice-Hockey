@@ -75,33 +75,44 @@ class QNetwork(nn.Module):
         self.frames, self.height, self.width, self.channels = input_shape
         
         # Convolutional layers - used to extract features from images 
-        #定義卷積層 - 用於從圖像中提取特徵
-        # 第一個卷積層：將輸入通道(幀數x通道數)轉換為32個特徵圖,kernel_size=8：使用8x8的卷積核, tride=4：每次移動4個像素，減少輸出大小
+        # First convolutional layer: takes stacked frames as input
+        # The input shape is (batch_size, frames * channels, height, width)
+        # The number of input channels is frames * channels
+        # The number of output channels is 32
+        # The kernel size is 8x8 and the stride is 4
         self.conv1 = nn.Conv2d(self.frames * self.channels, 32, kernel_size=8, stride=4)
-        # 第二個卷積層：從32個特徵圖提取64個更高級的特徵
+        # Second convolutional layer: takes the output of the first layer as input
+        # The number of input channels is 32
+        # The number of output channels is 64
+        # The kernel size is 4x4 and the stride is 2
         self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        # 第三個卷積層：進一步提取64個更抽象的特徵
+        # Third convolutional layer: takes the output of the second layer as input
+        # The number of input channels is 64
+        # The number of output channels is 64
+        # The kernel size is 3x3 and the stride is 1
+        # This layer is only used if self.use_two_conv_layers is False
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
         
-        # Calculate size of flattened features after conv layers
+        # Store the number of actions
+        self.use_two_conv_layers = config.USE_TWO_CONV_LAYERS
+
+        # Calculate the input size for the fully connected layer
         def conv2d_size_out(size, kernel_size, stride):
             return (size - (kernel_size - 1) - 1) // stride + 1
         
-        # Calculate the output size after each convolutional layer
-        # 計算每個卷積層後的輸出大小
-        # conv_width和conv_height分別是卷積層輸出圖像的寬度和高度
-        conv_width = conv2d_size_out(conv2d_size_out(conv2d_size_out(self.width, 8, 4), 4, 2), 3, 1)
-        conv_height = conv2d_size_out(conv2d_size_out(conv2d_size_out(self.height, 8, 4), 4, 2), 3, 1)
-        # Calculate the size of the flattened features after the conv layers
-        # 計算展平後的特徵大小
-        # linear_input_size是展平後的特徵大小, 這個大小將用於全連接層的輸入, 這裡的64是第三個卷積層的輸出通道數
-        linear_input_size = conv_width * conv_height * 64
+        # according to the number of convolutional layers, calculate the input size for the fully connected layer
+        if self.use_two_conv_layers:
+            # calculate the output size after two convolutional layers
+            conv_width = conv2d_size_out(conv2d_size_out(self.width, 8, 4), 4, 2)
+            conv_height = conv2d_size_out(conv2d_size_out(self.height, 8, 4), 4, 2)
+            linear_input_size = conv_width * conv_height * 64
+        else:
+            # calculate the output size after three convolutional layers
+            conv_width = conv2d_size_out(conv2d_size_out(conv2d_size_out(self.width, 8, 4), 4, 2), 3, 1)
+            conv_height = conv2d_size_out(conv2d_size_out(conv2d_size_out(self.height, 8, 4), 4, 2), 3, 1)
+            linear_input_size = conv_width * conv_height * 64
         
-        # Fully connected layers
-        # 定義全連接層
-        # 第一個全連接層：將展平的特徵大小轉換為512個神經元
-        # 第二個全連接層：將512個神經元轉換為num_actions個輸出(每個動作的Q值)
-        # num_actions是環境中可能的動作數量
+        # Fully connected layers - used to process the features extracted by the convolutional layers
         self.fc1 = nn.Linear(linear_input_size, 512)
         self.fc2 = nn.Linear(512, num_actions)
         
@@ -149,15 +160,12 @@ class QNetwork(nn.Module):
         x = x.view(batch_size, self.frames * self.channels, self.height, self.width)
         
         # Apply convolutional layers with ReLU activation
-         # 應用第一個卷積層，然後使用ReLU激活函數
-        # ReLU: max(0,x) - 將負值變為0，保留正值
         x = F.relu(self.conv1(x))
-        # Apply second and third convolutional layers with ReLU activation
-        # 應用第二和第三個卷積層，然後使用ReLU激活函數
         x = F.relu(self.conv2(x))
-        # Apply third convolutional layer with ReLU activation
-        # 應用第三個卷積層，然後使用ReLU激活函數
-        x = F.relu(self.conv3(x))
+        
+        # 條件執行第三層卷積
+        if not self.use_two_conv_layers:
+            x = F.relu(self.conv3(x))
         
         # Flatten for fully connected layers
         # 將卷積層的輸出展平為一維向量，以便輸入到全連接層

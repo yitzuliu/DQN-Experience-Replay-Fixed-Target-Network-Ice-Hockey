@@ -121,11 +121,15 @@ def train(agent, env, num_episodes=config.TRAINING_EPISODES, render=False):
             agent.store_experience(state, action, reward, next_state, done)
             
             # Learn from experience if sufficient samples exist
-            # This handles steps 11-14 of the pseudocode
+            # 梯度累積實現: 循環多次取樣學習，但只在第一次重置梯度，最後一次更新參數
             if agent.memory.can_sample(agent.batch_size):
-                loss = agent.learn()
-                if loss is not None:
-                    episode_loss.append(loss)
+                # 處理每一個累積步驟
+                for i in range(config.GRADIENT_ACCUMULATION_STEPS):
+                    # 只在第一步重置梯度
+                    reset_grads = (i == 0)
+                    loss = agent.learn(reset_grads)
+                    if loss is not None:
+                        episode_loss.append(loss)
             
             # Update state and counters
             state = next_state
