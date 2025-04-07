@@ -41,3 +41,6 @@ logs/
 # Model files
 models/
 checkpoints/
+
+# Ignore macOS system files
+.DS_Store
