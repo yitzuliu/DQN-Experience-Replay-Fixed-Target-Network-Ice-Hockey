@@ -55,7 +55,6 @@ class DQNAgent:
         """
         # Detect device (CPU/GPU) if not provided
         self.device = device if device is not None else utils.get_device()
-        print(f"DQN Agent running on: {self.device}")
         
         # Store action space size
         self.n_actions = n_actions
@@ -63,13 +62,11 @@ class DQNAgent:
         # Create networks
         # Initialize action-value network Q (θ₁) with random weights - PSEUDOCODE LINE 2
         self.q_network = create_q_network(state_shape, n_actions, self.device)
-        print(f"Created Q-Network with {sum(p.numel() for p in self.q_network.parameters()):,} parameters")
         
         # Initialize target network Q_target (θ₂) ← θ₁ - PSEUDOCODE LINE 3
         self.target_network = create_q_network(state_shape, n_actions, self.device)
         self.target_network.load_state_dict(self.q_network.state_dict())  # Copy weights from Q-network
         self.target_network.eval()  # Set to evaluation mode (no gradient updates)
-        print("Target network initialized with Q-network weights")
         
         # Setup optimizer - Adam with learning rate from config
         self.optimizer = optim.Adam(
@@ -100,9 +97,6 @@ class DQNAgent:
         # Enable cuDNN benchmarking for faster convolutions if using CUDA
         if self.device.type == 'cuda':
             torch.backends.cudnn.benchmark = True
-            print("CUDA optimizations enabled for faster training")
-        
-        print("DQN Agent initialized successfully")
     
     def select_action(self, state, evaluate=None):
         """
@@ -126,14 +120,17 @@ class DQNAgent:
             evaluate = config.DEFAULT_EVALUATE_MODE
         
         # Decay epsilon value based on steps
-        # Linear annealing: epsilon_start to epsilon_end over epsilon_decay steps
+        # Modified decay strategy: Using cosine decay instead of linear decay
         if not evaluate:
             self.steps_done += 1
-            self.epsilon = max(
-                self.epsilon_end, 
-                self.epsilon_start - (self.steps_done / self.epsilon_decay) * 
-                (self.epsilon_start - self.epsilon_end)
-            )
+            # Exponential decay formula: Maintains high exploration rate early, gradually decreases
+            # self.epsilon = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
+            #               math.exp(-1.0 * self.steps_done / self.epsilon_decay)
+            
+            # Alternative: Using cosine decay
+            progress = min(1.0, self.steps_done / self.epsilon_decay)
+            self.epsilon = self.epsilon_end + 0.5 * (self.epsilon_start - self.epsilon_end) * \
+                         (1 + math.cos(progress * math.pi))
         
         # Use greedy policy for evaluation
         if evaluate:
@@ -303,7 +300,6 @@ class DQNAgent:
         
         # Use PyTorch's recommended way to save models
         torch.save(checkpoint, filepath)
-        print(f"Model saved to {filepath}")
         return True
     
     def load_model(self, filepath):
@@ -317,7 +313,6 @@ class DQNAgent:
             bool: True if loading was successful
         """
         if not os.path.exists(filepath):
-            print(f"Model file not found: {filepath}")
             return False
         
         # Load checkpoint to appropriate device
@@ -334,7 +329,6 @@ class DQNAgent:
         self.avg_q_values = checkpoint.get('avg_q_values', [])
         self.losses = checkpoint.get('losses', [])
         
-        print(f"Model loaded from {filepath} (trained for {self.steps_done} steps)")
         return True
     
     def get_statistics(self):

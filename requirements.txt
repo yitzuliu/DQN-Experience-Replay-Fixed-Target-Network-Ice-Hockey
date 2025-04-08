@@ -1,0 +1,12 @@
+# Core libraries
+torch>=1.8.0
+numpy>=1.19.0
+matplotlib>=3.3.0
+tqdm>=4.45.0
+opencv-python>=4.5.0
+pandas>=1.1.0
+
+# Environments
+gymnasium>=0.26.0
+ale-py>=0.8.0
+gymnasium[atari,accept-rom-license]>=0.26.0

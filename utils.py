@@ -129,7 +129,7 @@ def create_directories(base_dir="./results"):
     
     return paths
 
-def plot_learning_curve(values, window_size=100, title="", xlabel="", ylabel="", save_path=None):
+def plot_learning_curve(values, window_size=100, title="", xlabel="", ylabel="", save_path=None, max_points=5000):
     """
     Plot learning curves with moving average for training visualization.
     
@@ -140,8 +140,16 @@ def plot_learning_curve(values, window_size=100, title="", xlabel="", ylabel="",
         xlabel (str): X-axis label
         ylabel (str): Y-axis label
         save_path (str): Path to save the figure, or None to display
+        max_points (int): Maximum number of points to plot (down-samples if exceeded)
     """
     plt.figure(figsize=(10, 6))
+    
+    # Down-sample if too many points (for efficiency)
+    if len(values) > max_points:
+        skip = len(values) // max_points
+        indices = np.arange(0, len(values), skip)
+        values = [values[i] for i in indices]
+        print(f"Down-sampled from {len(values)*skip} to {len(values)} points for plotting efficiency")
     
     # Plot raw values
     plt.plot(values, alpha=0.3, color='blue', label='Raw')
@@ -149,7 +157,8 @@ def plot_learning_curve(values, window_size=100, title="", xlabel="", ylabel="",
     # Calculate and plot moving average if enough data points
     if len(values) >= window_size:
         moving_avg = np.convolve(values, np.ones(window_size)/window_size, mode='valid')
-        plt.plot(np.arange(window_size-1, len(values)), moving_avg, color='red', label=f'Moving Avg (window={window_size})')
+        plt.plot(np.arange(window_size-1, len(values)), moving_avg, color='red', 
+                label=f'Moving Avg (window={window_size})')
     
     plt.title(title)
     plt.xlabel(xlabel)

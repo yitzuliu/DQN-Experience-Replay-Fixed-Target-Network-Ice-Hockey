@@ -87,7 +87,6 @@ def train(device=None, render_training=False, output_dir=None):
         torch.backends.cudnn.benchmark = True
         # Deterministic mode for reproducibility (comment out for max speed)
         # torch.backends.cudnn.deterministic = True
-        print(f"CUDA optimizations enabled with {torch.cuda.get_device_name()}")
         
         # Set memory allocation strategy for better GPU memory management
         torch.cuda.empty_cache()
@@ -177,7 +176,8 @@ def train(device=None, render_training=False, output_dir=None):
     total_time_start = time.time()
     
     # Use tqdm for progress bar
-    episode_iterator = tqdm(range(1, config.TRAINING_EPISODES + 1), desc="Training Progress")
+    episode_iterator = tqdm(range(1, config.TRAINING_EPISODES + 1), desc="Training Progress", 
+                           disable=True)  # Disable tqdm progress bar
     
     for episode in episode_iterator:
         episode_start_time = time.time()
@@ -215,7 +215,10 @@ def train(device=None, render_training=False, output_dir=None):
             # Update target network periodically - PSEUDOCODE LINE 14
             if step_count % config.TARGET_UPDATE_FREQUENCY == 0:
                 agent.update_target_network()
-                print(f"Episode {episode}: Updated target network at step {step_count}")
+                
+                # Further reduce print frequency, from every 10 times to every 20 times or lower
+                if False:  # Disable target network update messages
+                    print(f"Step {step_count}: Updated target network")
             
             # Move to next state
             state = next_state
@@ -235,36 +238,42 @@ def train(device=None, render_training=False, output_dir=None):
             avg_q = np.mean(agent.avg_q_values[-1000:])
             stats["episode_q_values"].append(avg_q)
         
-        # Update progress bar description
-        episode_iterator.set_description(
-            f"Ep {episode}: Reward={episode_reward:.1f}, Loss={avg_loss:.4f}, ε={agent.epsilon:.2f}"
-        )
+        # Update progress bar description (disabled now)
+        # episode_iterator.set_description(
+        #     f"Ep {episode}: Reward={episode_reward:.1f}, Loss={avg_loss:.4f}, ε={agent.epsilon:.2f}"
+        # )
         
-        # Print more detailed progress occasionally
-        if episode % 10 == 0:
-            print(f"\nEpisode {episode}/{config.TRAINING_EPISODES} - "
-                  f"Reward: {episode_reward:.2f}, Length: {episode_length}, "
-                  f"Loss: {avg_loss:.6f}, Epsilon: {agent.epsilon:.4f}, "
-                  f"Time: {episode_duration:.2f}s")
-            print(f"Memory size: {len(agent.memory)}/{config.MEMORY_CAPACITY}, Learning threshold: {config.LEARNING_STARTS}")
-            print(f"Steps done: {agent.steps_done}, Updates performed: {max(0, (agent.steps_done - config.LEARNING_STARTS) // config.UPDATE_FREQUENCY)}")
-            
-            # Display recent losses if available
-            if len(agent.losses) > 0:
-                recent_losses = agent.losses[-10:]  # Last 10 loss values
-                print(f"Recent losses: {[f'{l:.6f}' for l in recent_losses]}")
-            
-            # Display GPU memory usage if available
-            if device.type == 'cuda' and hasattr(torch.cuda, 'memory_allocated'):
-                allocated = torch.cuda.memory_allocated() / 1e6
-                reserved = torch.cuda.memory_reserved() / 1e6
-                print(f"GPU Memory: {allocated:.1f}MB allocated, {reserved:.1f}MB reserved")
+        # Print only the episode summary line, no other details
+        print(f"Episode {episode}/{config.TRAINING_EPISODES} - "
+              f"Reward: {episode_reward:.2f}, Length: {episode_length}, "
+              f"Loss: {avg_loss:.6f}, Epsilon: {agent.epsilon:.4f}, "
+              f"Time: {episode_duration:.2f}s")
         
-        # Save best model
+        # Comment out or remove all other print statements
+        # if episode % 10 == 0:
+        #     print(f"\nEpisode {episode}/{config.TRAINING_EPISODES} - "
+        #           f"Reward: {episode_reward:.2f}, Length: {episode_length}, "
+        #           f"Loss: {avg_loss:.6f}, Epsilon: {agent.epsilon:.4f}, "
+        #           f"Time: {episode_duration:.2f}s")
+        #     print(f"Memory size: {len(agent.memory)}/{config.MEMORY_CAPACITY}, Learning threshold: {config.LEARNING_STARTS}")
+        #     print(f"Steps done: {agent.steps_done}, Updates performed: {max(0, (agent.steps_done - config.LEARNING_STARTS) // config.UPDATE_FREQUENCY)}")
+        #     
+        #     # Display recent losses if available
+        #     if len(agent.losses) > 0:
+        #         recent_losses = agent.losses[-10:]  # Last 10 loss values
+        #         print(f"Recent losses: {[f'{l:.6f}' for l in recent_losses]}")
+        #     
+        #     # Display GPU memory usage if available
+        #     if device.type == 'cuda' and hasattr(torch.cuda, 'memory_allocated'):
+        #         allocated = torch.cuda.memory_allocated() / 1e6
+        #         reserved = torch.cuda.memory_reserved() / 1e6
+        #         print(f"GPU Memory: {allocated:.1f}MB allocated, {reserved:.1f}MB reserved")
+        
+        # Modify the best model message to be more minimal
         if episode_reward > best_reward:
             best_reward = episode_reward
             agent.save_model(os.path.join(model_dir, "best_model.pth"))
-            print(f"Saved new best model with reward {best_reward:.2f}")
+            # print(f"Saved new best model with reward {best_reward:.2f}")  # Comment out this line
         
         # Periodically save checkpoint and visualize progress
         if episode % config.SAVE_FREQUENCY == 0:

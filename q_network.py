@@ -91,14 +91,6 @@ class DQN(nn.Module):
         
         # Move model to the specified device (GPU/CPU)
         self.to(device)
-        
-        # Log model architecture decisions
-        layers_used = 1
-        if use_two_layers:
-            layers_used = 2
-        if use_three_layers:
-            layers_used = 3
-        print(f"Created DQN with {layers_used} convolutional layer(s), output size: {n_actions}")
     
     def _calculate_conv_output_size(self, h, w, use_two_layers, use_three_layers):
         """
@@ -230,9 +222,6 @@ def create_q_network(input_shape, n_actions, device=None):
     # Auto-detect device if not provided
     if device is None:
         device = utils.get_device()
-        
-    # Log device to be used
-    print(f"Creating Q-network on device: {device}")
     
     # Determine network depth based on config
     use_one_layer = config.USE_ONE_CONV_LAYER
@@ -257,14 +246,6 @@ def create_q_network(input_shape, n_actions, device=None):
         use_two_layers=use_two_layers,
         use_three_layers=use_three_layers
     )
-    
-    # Log network architecture
-    if use_three_layers:
-        print("Created 3-layer convolutional Q-network (deep)")
-    elif use_two_layers:
-        print("Created 2-layer convolutional Q-network (medium)")
-    else:
-        print("Created 1-layer convolutional Q-network (shallow)")
     
     # Enable cuDNN benchmarking for faster convolutions if using CUDA
     if device.type == 'cuda':

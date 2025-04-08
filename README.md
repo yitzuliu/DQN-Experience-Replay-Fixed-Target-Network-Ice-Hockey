@@ -106,6 +106,46 @@ python main.py visualize results/eval_best_model.pkl
 
 ---
 
+## Output Files 輸出文件
+
+The system generates the following output files during training and evaluation:
+
+### Training Outputs
+- `results/run_TIMESTAMP/models/model_epXXX.pth`: Checkpoint models saved periodically
+- `results/run_TIMESTAMP/models/best_model.pth`: Model with highest reward
+- `results/run_TIMESTAMP/models/final_model.pth`: Final model after training
+- `results/run_TIMESTAMP/logs/training_stats.pkl`: Serialized training statistics
+- `results/run_TIMESTAMP/logs/final_stats.pkl`: Complete training summary
+- `results/run_TIMESTAMP/visualizations/rewards.png`: Reward curve plot
+- `results/run_TIMESTAMP/visualizations/losses.png`: Loss curve plot
+- `results/run_TIMESTAMP/visualizations/training_stats.png`: Combined statistics plot
+
+### Evaluation Outputs
+- `models/eval_MODELNAME.pkl`: Evaluation statistics
+- `models/eval_MODELNAME.png`: Evaluation visualizations
+- `models/gameplay_MODELNAME.mp4`: Recorded gameplay videos (if enabled)
+- `models/model_comparison_TIMESTAMP.png`: Model comparison plots
+
+系統在訓練和評估過程中會生成以下輸出文件：
+
+### 訓練輸出
+- `results/run_TIMESTAMP/models/model_epXXX.pth`: 定期保存的檢查點模型
+- `results/run_TIMESTAMP/models/best_model.pth`: 獲得最高獎勵的模型
+- `results/run_TIMESTAMP/models/final_model.pth`: 訓練結束後的最終模型
+- `results/run_TIMESTAMP/logs/training_stats.pkl`: 序列化的訓練統計數據
+- `results/run_TIMESTAMP/logs/final_stats.pkl`: 完整的訓練摘要
+- `results/run_TIMESTAMP/visualizations/rewards.png`: 獎勵曲線圖
+- `results/run_TIMESTAMP/visualizations/losses.png`: 損失曲線圖
+- `results/run_TIMESTAMP/visualizations/training_stats.png`: 綜合統計圖
+
+### 評估輸出
+- `models/eval_MODELNAME.pkl`: 評估統計數據
+- `models/eval_MODELNAME.png`: 評估可視化圖
+- `models/gameplay_MODELNAME.mp4`: 遊戲錄製視頻（如啟用）
+- `models/model_comparison_TIMESTAMP.png`: 模型比較圖
+
+---
+
 ## Configuration 配置
 
 Key hyperparameters can be modified in `config.py`:

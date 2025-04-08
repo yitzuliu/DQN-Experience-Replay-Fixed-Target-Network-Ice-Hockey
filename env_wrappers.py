@@ -265,14 +265,11 @@ class WarpFrame(gym.ObservationWrapper):
             if torch.cuda.is_available():
                 self.device = torch.device("cuda")
                 self.gpu_resize = True
-                print(f"Using CUDA GPU for frame processing: {torch.cuda.get_device_name(0)}")
             elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 self.device = torch.device("mps")
                 self.gpu_resize = True
-                print("Using Apple Silicon GPU (MPS) for frame processing")
             else:
                 self.gpu_resize = False
-                print("No GPU available, using CPU for frame processing")
         else:
             self.gpu_resize = False
         
@@ -501,10 +498,7 @@ def make_atari_env(env_name=config.ENV_NAME,
                   "Set TRAINING_MODE=False in config.py if you want to see visualization.")
     else:
         effective_render_mode = render_mode
-    
-    print(f"Creating environment with render_mode: {effective_render_mode} "
-          f"(TRAINING_MODE: {is_training}, requested render_mode: {render_mode})")
-    
+        
     # Create base environment with specified parameters
     env = make_env(env_name, effective_render_mode, difficulty, mode)
     

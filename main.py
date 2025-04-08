@@ -41,7 +41,6 @@ def main():
     train_parser.add_argument("--render", action="store_true", help="Render training episodes")
     train_parser.add_argument("--gpu", action="store_true", help="Force GPU usage")
     train_parser.add_argument("--cpu", action="store_true", help="Force CPU usage")
-    train_parser.add_argument("--model", type=str, default=None, help="Path to a pre-trained model to continue training")
     
     # === Evaluate command ===
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate a trained model")
@@ -142,16 +141,16 @@ def determine_device(args):
         elif args.gpu:
             if torch.cuda.is_available():
                 device = torch.device("cuda")
-                print(f"Using CUDA GPU: {torch.cuda.get_device_name()}")
+                print(f"Using GPU: {torch.cuda.get_device_name()}")
             elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 device = torch.device("mps")
-                print("Using Apple Silicon GPU (MPS)")
+                print("Using Apple GPU")
             else:
-                print("Warning: GPU requested but no compatible GPU found, using CPU instead")
+                print("Warning: No GPU found, using CPU")
                 device = torch.device("cpu")
         elif args.cpu:
             device = torch.device("cpu")
-            print("Forcing CPU usage as requested")
+            print("Using CPU as requested")
         else:
             device = utils.get_device()  # Auto-detect
     else:
@@ -164,30 +163,20 @@ def display_project_info():
     """
     Display basic information about the project on startup.
     """
-    print("\n" + "="*70)
-    print(" "*20 + "DQN for Atari Ice Hockey" + " "*20)
-    print(" "*15 + "Reinforcement Learning Project" + " "*15)
-    print("="*70)
+    print("\n" + "="*50)
+    print(" "*10 + "DQN for Atari Ice Hockey" + " "*10)
+    print("="*50)
     
     # System information
     system_info = utils.get_system_info()
-    print(f"Running on: {system_info['os']} with PyTorch {system_info['torch_version']}")
-    
     if system_info.get('cuda_available', False):
-        print(f"GPU: {system_info.get('gpu_name', 'Unknown')} "
-              f"({system_info.get('gpu_memory_gb', 'Unknown')} GB)")
-    elif system_info.get('mps_available', False):
-        print("GPU: Apple Silicon (Metal)")
+        print(f"Running on: {system_info.get('gpu_name', 'GPU')}")
     else:
-        print("No GPU detected, using CPU only")
+        print("Running on: CPU")
     
-    print("\nAvailable commands:")
-    print("  train     - Train a DQN agent")
-    print("  evaluate  - Evaluate a trained model")
-    print("  compare   - Compare multiple models")
-    print("  visualize - Visualize training results")
-    print("\nFor more information on a specific command, run: python main.py <command> --help")
-    print("="*70 + "\n")
+    print("\nCommands: train | evaluate | compare | visualize")
+    print("Use --help with any command for options")
+    print("="*50 + "\n")
 
 
 if __name__ == "__main__":
