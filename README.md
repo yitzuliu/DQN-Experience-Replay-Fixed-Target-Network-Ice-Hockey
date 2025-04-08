@@ -2,25 +2,40 @@
 
 ## Overview 概述
 
-This project implements a Deep Q-Network (DQN) to play the Atari game "Ice Hockey" using reinforcement learning. The implementation includes key features such as experience replay, target networks, and ε-greedy exploration.
+This project implements a Deep Q-Network (DQN) to play the Atari game "Ice Hockey" using reinforcement learning. The implementation follows the algorithm described in the paper "Human-level control through deep reinforcement learning" by Mnih et al. (2015), including key features such as experience replay, target networks, and ε-greedy exploration.
 
-本專案實現了一個深度 Q 網絡 (DQN)，用於通過強化學習玩 Atari 遊戲 "Ice Hockey"。實現包括經驗回放、目標網絡和 ε-greedy 探索等關鍵功能。
+本專案實現了一個深度 Q 網絡 (DQN)，用於通過強化學習玩 Atari 遊戲 "Ice Hockey"。實現基於 Mnih 等人 (2015) 發表的論文 "Human-level control through deep reinforcement learning"，包括經驗回放、目標網絡和 ε-greedy 探索等關鍵功能。
 
 ---
 
 ## Features 功能特點
 
-- **Experience Replay**: Efficiently reuses past experiences to improve learning stability.
-- **Target Network**: Stabilizes training by using a separate target network.
-- **ε-greedy Exploration**: Balances exploration and exploitation during training.
-- **Logging and Visualization**: Tracks training progress and visualizes metrics.
-- **Evaluation**: Periodically evaluates the trained agent's performance.
+- **Complete DQN Implementation**: Full implementation of the DQN algorithm with all key components.
+- **Optimized Performance**: GPU acceleration, memory-efficient experience replay, and batch processing.
+- **Flexible Architecture**: Configurable network depth (1-3 convolutional layers) for different performance needs.
+- **Comprehensive Evaluation**: Tools for model evaluation, comparison, and visualization.
+- **Educational Design**: Well-documented code with clear comments explaining the RL concepts.
 
-- **經驗回放**：高效重用過去的經驗以提高學習穩定性。
-- **目標網絡**：通過使用單獨的目標網絡穩定訓練。
-- **ε-greedy 探索**：在訓練期間平衡探索與利用。
-- **日誌記錄與可視化**：跟蹤訓練進度並可視化指標。
-- **評估**：定期評估訓練代理的性能。
+- **完整 DQN 實現**：實現了具有所有關鍵組件的完整 DQN 算法。
+- **優化性能**：GPU 加速、記憶體高效的經驗回放和批處理。
+- **靈活架構**：可配置的網絡深度（1-3 個卷積層）以滿足不同的性能需求。
+- **全面評估**：用於模型評估、比較和可視化的工具。
+- **教育設計**：代碼文檔完善，清晰註解解釋強化學習概念。
+
+---
+
+## Project Structure 專案結構
+
+- `main.py`: Unified entry point with command-line interface for all functionality
+- `train.py`: Core training loop implementing the DQN algorithm
+- `evaluate.py`: Evaluation and comparison of trained models
+- `dqn_agent.py`: DQN agent implementation with Q-network and target network
+- `q_network.py`: Neural network architecture for Q-function approximation
+- `replay_memory.py`: Experience replay buffer implementations (list, array, and optimized)
+- `env_wrappers.py`: Environment preprocessing and wrappers for Atari games
+- `config.py`: Hyperparameters and configuration settings
+- `utils.py`: Utility functions for device detection, visualization, etc.
+- `logger.py`: Metrics tracking and visualization
 
 ---
 
@@ -28,16 +43,22 @@ This project implements a Deep Q-Network (DQN) to play the Atari game "Ice Hocke
 
 1. Clone the repository 克隆倉庫：
    ```bash
-   git clone https://github.com/your-repo/dqn-ice-hockey.git
+   git clone https://github.com/yourusername/dqn-ice-hockey.git
    cd dqn-ice-hockey
    ```
 
-2. Install dependencies 安裝依賴：
+2. Create a virtual environment (recommended) 創建虛擬環境（推薦）：
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install dependencies 安裝依賴：
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Install Atari ROMs 安裝 Atari ROM：
+4. Install Atari ROMs (if needed) 安裝 Atari ROM（如需要）：
    ```bash
    python -m ale_py.roms --install-dir ./roms
    ```
@@ -46,72 +67,114 @@ This project implements a Deep Q-Network (DQN) to play the Atari game "Ice Hocke
 
 ## Usage 使用方法
 
-### Training 訓練
+### Training a Model 訓練模型
 
-To train the agent, run the following command:
-運行以下命令訓練代理：
 ```bash
-python main.py --mode train --episodes 10000
+# Basic training with default parameters
+python main.py train
+
+# Training with custom parameters
+python main.py train --episodes 5000 --learning_starts 5000 --gpu
+
+# Training with visualization
+python main.py train --render
 ```
 
-### Evaluation 評估
+### Evaluating a Model 評估模型
 
-To evaluate a trained agent, run:
-運行以下命令評估訓練代理：
 ```bash
-python main.py --mode evaluate --model models/dqn_final.pth
+# Evaluate a specific model with rendering
+python main.py evaluate models/best_model.pth --render --episodes 5
+
+# Record a video of the agent playing
+python main.py evaluate models/best_model.pth --video
 ```
 
-### Visualization 可視化
+### Comparing Models 比較模型
 
-To visualize training results, run:
-運行以下命令可視化訓練結果：
 ```bash
-python main.py --mode visualize
+# Compare multiple models
+python main.py compare models/model_ep200.pth models/model_ep400.pth models/model_ep600.pth
+```
+
+### Visualizing Results 可視化結果
+
+```bash
+# Visualize evaluation results
+python main.py visualize results/eval_best_model.pkl
 ```
 
 ---
 
-## File Structure 文件結構
+## Configuration 配置
 
-- `main.py`: Main entry point for training, evaluation, and visualization.
-- `train.py`: Implements the DQN training loop.
-- `evaluate.py`: Evaluates the trained agent.
-- `dqn_agent.py`: Defines the DQN agent.
-- `q_network.py`: Implements the Q-network architecture.
-- `replay_memory.py`: Implements experience replay memory.
-- `env_wrappers.py`: Handles environment creation and preprocessing.
-- `utils.py`: Utility functions for device setup, plotting, and statistics.
-- `logger.py`: Tracks and visualizes training progress.
-- `config.py`: Defines hyperparameters and environment settings.
+Key hyperparameters can be modified in `config.py`:
 
-- `main.py`：訓練、評估和可視化的主入口。
-- `train.py`：實現 DQN 訓練循環。
-- `evaluate.py`：評估訓練代理。
-- `dqn_agent.py`：定義 DQN 代理。
-- `q_network.py`：實現 Q 網絡架構。
-- `replay_memory.py`：實現經驗回放記憶。
-- `env_wrappers.py`：處理環境創建和預處理。
-- `utils.py`：設備設置、繪圖和統計的工具函數。
-- `logger.py`：跟蹤和可視化訓練進度。
-- `config.py`：定義超參數和環境設置。
+- **Network Architecture**: Change `USE_ONE_CONV_LAYER`, `USE_TWO_CONV_LAYERS`, or `USE_THREE_CONV_LAYERS`
+- **Learning Parameters**: Adjust `LEARNING_RATE`, `GAMMA`, `BATCH_SIZE`
+- **Exploration**: Modify `EPSILON_START`, `EPSILON_END`, `EPSILON_DECAY`
+- **Memory**: Change `MEMORY_CAPACITY` or `MEMORY_IMPLEMENTATION`
+
+For quick changes, many parameters can be overridden via command-line arguments.
 
 ---
 
-## Requirements 系統需求
+## System Requirements 系統需求
 
-- Python 3.8+
-- PyTorch
-- Gymnasium
-- NumPy
-- Matplotlib
-- tqdm
+- **Python**: 3.8+
+- **PyTorch**: 1.8+
+- **CUDA**: Optional but recommended for GPU acceleration
+- **RAM**: 8GB minimum, 16GB+ recommended
+- **GPU**: Optional but recommended for faster training (NVIDIA GPU or Apple Silicon)
+
+### Required Libraries 所需庫
+- torch
+- numpy
+- gymnasium (with atari environments)
 - ale-py
+- matplotlib
+- tqdm
+- opencv-python
+
+---
+
+## Performance Tips 性能提示
+
+- **GPU Acceleration**: Use `--gpu` flag to force GPU usage (if available)
+- **Memory Optimization**: Reduce `MEMORY_CAPACITY` on systems with limited RAM
+- **Training Speed**: Lower `BATCH_SIZE` for faster iterations, higher for better learning
+- **Network Size**: Use `USE_ONE_CONV_LAYER=True` for faster training on weaker hardware
+
+---
+
+## Implementation Details 實現細節
+
+The implementation follows the DQN algorithm pseudocode:
+
+1. Initialize replay memory D with capacity N
+2. Initialize action-value network Q with random weights
+3. Initialize target network Q̂ with weights from Q
+4. For each episode:
+   - Initialize state
+   - For each time step:
+     - Select action using ε-greedy policy
+     - Execute action and observe reward and next state
+     - Store transition in replay memory D
+     - Sample random mini-batch of transitions from D
+     - Compute target Q-values using target network Q̂
+     - Perform gradient descent step on the loss
+     - Periodically update target network Q̂ with weights from Q
 
 ---
 
 ## Acknowledgments 致謝
 
-This project is based on the original DQN algorithm introduced by DeepMind in the paper "Playing Atari with Deep Reinforcement Learning".
+- This implementation is based on the DQN algorithm described in [Mnih et al. (2015)](https://www.nature.com/articles/nature14236)
+- Environment handling uses [Gymnasium](https://gymnasium.farama.org/)
+- Special thanks to the PyTorch and AI research communities for their valuable resources
 
-本專案基於 DeepMind 在論文《Playing Atari with Deep Reinforcement Learning》中提出的原始 DQN 算法。
+---
+
+## License 許可證
+
+This project is licensed under the MIT License - see the LICENSE file for details.

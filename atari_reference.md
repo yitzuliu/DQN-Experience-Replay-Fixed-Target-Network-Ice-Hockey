@@ -67,6 +67,37 @@
 | IceHockeyDeterministic-v4   | "rgb"    | 4         | 0.0                       |
 | IceHockeyNoFrameskip-v4     | "rgb"    | 1         | 0.0                       |
 
+## Hardware Considerations
+When training reinforcement learning models on Atari environments, hardware resources significantly impact training speed and capability:
+
+### GPU Recommendations
+| Hardware             | Memory | Suitable For                                          |
+|----------------------|--------|------------------------------------------------------|
+| NVIDIA RTX 3090      | 24 GB  | Large batches, parallel environments, complex models |
+| NVIDIA RTX 2080      | 8 GB   | Standard training with moderate batch sizes          |
+| MacBook (Integrated) | Shared | Testing and small-scale experiments                  |
+
+### Resource Usage Guidelines
+- **Memory Requirements**:
+  - RAM observation type: Minimal memory usage
+  - RGB observation type: Higher memory usage, especially with frame stacking
+  - Training with prioritized replay buffers: Additional 1-2GB memory
+
+- **CPU Usage**:
+  - Multiple parallel environments benefit from more CPU cores
+  - Consider setting `num_envs` based on available CPU cores
+
+- **Training Optimizations**:
+  - High-end GPU (RTX 3090): Can handle 128-512 parallel environments
+  - Mid-range GPU (RTX 2080): Optimal with 32-64 parallel environments
+  - MacBook: Limited to 4-8 parallel environments
+
+### Environment-Specific Settings
+For IceHockey environments:
+- RAM observations (`ALE/IceHockey-ram-v5`) use significantly less memory
+- Consider lower frameskip values (2-3) on resource-constrained systems
+- Reduce replay buffer size on systems with limited RAM
+
 ## Best Practices
 - Use v5 environments (ALE namespace) as they follow best practices from research
 - Customize environment behavior using arguments to `gymnasium.make()`

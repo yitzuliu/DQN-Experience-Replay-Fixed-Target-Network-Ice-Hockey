@@ -1,409 +1,254 @@
 """
-Logger module for tracking and visualizing DQN training progress.
+Simplified Logger for DQN Training
 
-This module provides:
-1. Tracking of metrics (rewards, losses, epsilon values, etc.)
-2. Logging to file (CSV format)
-3. Real-time console feedback
-4. Visualization of training progress through plots
-5. Hyperparameter logging for experiment tracking
-
-The Logger class acts as a central hub for all monitoring and visualization needs
-during DQN training, helping to analyze model performance and debug issues.
+This module provides basic visualization and metrics tracking for DQN training.
+It focuses on:
+1. Essential metrics tracking (rewards, losses, etc.)
+2. Training progress visualization
+3. Saving data needed for evaluation
 """
 
 import os
 import time
-import csv
-import json
 import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime
+from collections import defaultdict
+import json
+import pickle
 
 
 class Logger:
     """
-    Logger class for tracking DQN training progress.
+    Simplified logger for tracking and visualizing DQN training progress.
     """
     
-    def __init__(self, log_dir="logs", exp_name=None):
+    def __init__(self, log_dir=None, experiment_name=None):
         """
-        Initialize the logger with the specified log directory.
+        Initialize the logger with minimal setup.
         
         Args:
-            log_dir (str): Directory where logs will be stored
-            exp_name (str): Name of the experiment (defaults to timestamp)
+            log_dir (str): Directory to save logs and visualizations
+            experiment_name (str): Name of the current experiment/run
         """
-        # Create a unique experiment name if not provided
-        if exp_name is None:
-            exp_name = f"dqn_experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Setup basic logging
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        self.experiment_name = experiment_name or f"dqn_run_{timestamp}"
+        self.log_dir = log_dir or os.path.join("logs", self.experiment_name)
         
-        self.exp_name = exp_name
-        self.log_dir = os.path.join(log_dir, exp_name)
-        
-        # Create log directory if it doesn't exist
-        os.makedirs(self.log_dir, exist_ok=True)
-        
-        # Paths for different log files
-        self.metrics_path = os.path.join(self.log_dir, "metrics.csv")
-        self.config_path = os.path.join(self.log_dir, "config.json")
-        self.summary_path = os.path.join(self.log_dir, "summary.txt")
+        # Create directory structure
+        self.viz_dir = os.path.join(self.log_dir, "plots")
+        os.makedirs(self.viz_dir, exist_ok=True)
         
         # Initialize metrics dictionary
-        self.metrics = {
-            'episode': [],
-            'episode_reward': [],
-            'episode_length': [],
-            'loss': [],
-            'epsilon': [],
-            'avg_q_value': [],
-            'eval_reward': [],
-            'time_elapsed': []
-        }
-        
-        # Initialize CSV file with header
-        self._initialize_csv()
-        
-        # Track start time
+        self.metrics = defaultdict(list)
         self.start_time = time.time()
         
-        print(f"Logger initialized. Experiment: {self.exp_name}")
-        print(f"Logs will be saved to: {self.log_dir}")
+        print(f"Simplified logger initialized. Saving to: {self.log_dir}")
     
-    def _initialize_csv(self):
-        """Initialize the CSV file with header row."""
-        with open(self.metrics_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(self.metrics.keys())
-    
-    def log_hyperparameters(self, config_dict):
+    def log_episode(self, episode_num, episode_reward, episode_length, epsilon, loss=None, q_value=None):
         """
-        Log hyperparameters to a JSON file.
+        Log basic metrics for a completed episode.
         
         Args:
-            config_dict (dict): Dictionary of hyperparameters
-        """
-        # Save configuration to JSON file
-        with open(self.config_path, 'w') as f:
-            json.dump(config_dict, f, indent=4)
-        
-        print(f"Hyperparameters logged to {self.config_path}")
-    
-    def log_metrics(self, episode, episode_reward, episode_length, loss=None, 
-                    epsilon=None, avg_q_value=None, eval_reward=None):
-        """
-        Log metrics for a single training episode.
-        
-        Args:
-            episode (int): Episode number
+            episode_num (int): Episode number
             episode_reward (float): Total reward for the episode
             episode_length (int): Number of steps in the episode
+            epsilon (float): Current epsilon value
             loss (float, optional): Average loss for the episode
-            epsilon (float, optional): Current epsilon value
-            avg_q_value (float, optional): Average Q-value for the episode
-            eval_reward (float, optional): Evaluation reward if available
+            q_value (float, optional): Average Q-value for the episode
         """
-        # Update metrics dictionary
-        self.metrics['episode'].append(episode)
-        self.metrics['episode_reward'].append(episode_reward)
-        self.metrics['episode_length'].append(episode_length)
-        self.metrics['loss'].append(loss if loss is not None else "N/A")
-        self.metrics['epsilon'].append(epsilon if epsilon is not None else "N/A")
-        self.metrics['avg_q_value'].append(avg_q_value if avg_q_value is not None else "N/A")
-        self.metrics['eval_reward'].append(eval_reward if eval_reward is not None else "N/A")
-        self.metrics['time_elapsed'].append(time.time() - self.start_time)
+        # Store essential metrics
+        self.metrics["episode"].append(episode_num)
+        self.metrics["reward"].append(episode_reward)
+        self.metrics["length"].append(episode_length)
+        self.metrics["epsilon"].append(epsilon)
         
-        # Append to CSV file
-        with open(self.metrics_path, 'a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                episode, 
-                episode_reward, 
-                episode_length, 
-                loss if loss is not None else "N/A",
-                epsilon if epsilon is not None else "N/A",
-                avg_q_value if avg_q_value is not None else "N/A",
-                eval_reward if eval_reward is not None else "N/A",
-                time.time() - self.start_time
-            ])
+        if loss is not None:
+            self.metrics["loss"].append(loss)
+        
+        if q_value is not None:
+            self.metrics["q_value"].append(q_value)
     
-    def log_summary(self, agent_stats=None, additional_info=None):
+    def log_eval_episode(self, train_episode, eval_rewards):
         """
-        Log a summary of the training run.
+        Log evaluation episode results.
         
         Args:
-            agent_stats (dict, optional): Statistics from the agent
-            additional_info (dict, optional): Additional information to log
+            train_episode (int): Training episode number when evaluation was performed
+            eval_rewards (list): List of rewards from evaluation episodes
         """
-        with open(self.summary_path, 'w') as f:
-            f.write(f"DQN Training Summary\n")
-            f.write(f"====================\n")
-            f.write(f"Experiment: {self.exp_name}\n")
-            f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Total episodes: {len(self.metrics['episode'])}\n")
-            f.write(f"Total training time: {self._format_time(self.metrics['time_elapsed'][-1] if self.metrics['time_elapsed'] else 0)}\n\n")
-            
-            # Metrics summary
-            f.write(f"Metrics Summary:\n")
-            f.write(f"- Final epsilon: {self.metrics['epsilon'][-1] if self.metrics['epsilon'] and self.metrics['epsilon'][-1] != 'N/A' else 'N/A'}\n")
-            
-            # Calculate average reward for last 100 episodes
-            if len(self.metrics['episode_reward']) >= 100:
-                last_100_rewards = [r for r in self.metrics['episode_reward'][-100:] if r != 'N/A']
-                avg_last_100 = sum(last_100_rewards) / len(last_100_rewards) if last_100_rewards else 'N/A'
-                f.write(f"- Average reward (last 100 episodes): {avg_last_100 if avg_last_100 != 'N/A' else 'N/A'}\n")
-            
-            # Add agent statistics if provided
-            if agent_stats:
-                f.write(f"\nAgent Statistics:\n")
-                for key, value in agent_stats.items():
-                    f.write(f"- {key}: {value}\n")
-            
-            # Add additional info if provided
-            if additional_info:
-                f.write(f"\nAdditional Information:\n")
-                for key, value in additional_info.items():
-                    f.write(f"- {key}: {value}\n")
+        # Store evaluation data for later use
+        if "eval_episode" not in self.metrics:
+            self.metrics["eval_episode"] = []
+            self.metrics["eval_reward"] = []
         
-        print(f"Training summary saved to {self.summary_path}")
+        self.metrics["eval_episode"].append(train_episode)
+        self.metrics["eval_reward"].append(np.mean(eval_rewards))
+        
+        # Print summary
+        print(f"Evaluation at episode {train_episode}: Mean reward = {np.mean(eval_rewards):.2f}")
     
-    def _format_time(self, seconds):
-        """Format time in seconds to hours, minutes, seconds."""
-        hours, remainder = divmod(int(seconds), 3600)
-        minutes, seconds = divmod(remainder, 60)
-        return f"{hours:02d}h {minutes:02d}m {seconds:02d}s"
-    
-    def plot_metrics(self, save=True, show=True):
+    def save_metrics(self, filename="training_metrics.pkl"):
         """
-        Plot training metrics.
+        Save current metrics to a file.
+        
+        Args:
+            filename (str): Name of the file to save metrics to
+        """
+        # Save metrics to pickle file for later analysis
+        filepath = os.path.join(self.log_dir, filename)
+        with open(filepath, "wb") as f:
+            pickle.dump(self.metrics, f)
+        
+        # Also save a JSON summary with key statistics
+        summary = {
+            "episodes_completed": len(self.metrics["episode"]),
+            "max_reward": max(self.metrics["reward"]) if self.metrics["reward"] else None,
+            "final_reward": self.metrics["reward"][-1] if self.metrics["reward"] else None,
+            "avg_reward_last_100": np.mean(self.metrics["reward"][-100:]) if len(self.metrics["reward"]) >= 100 else None,
+            "final_epsilon": self.metrics["epsilon"][-1] if self.metrics["epsilon"] else None,
+            "training_duration_hours": (time.time() - self.start_time) / 3600,
+        }
+        
+        with open(os.path.join(self.log_dir, "summary.json"), "w") as f:
+            json.dump(summary, f, indent=2)
+    
+    def plot_training_curves(self, save=True, show=False):
+        """
+        Generate and save/show essential training curves.
         
         Args:
             save (bool): Whether to save plots to files
-            show (bool): Whether to display the plots
+            show (bool): Whether to display plots
         """
-        # Create plots directory
-        plots_dir = os.path.join(self.log_dir, "plots")
-        os.makedirs(plots_dir, exist_ok=True)
-        
-        # Define common x-axis (episodes)
-        episodes = self.metrics['episode']
-        if not episodes:
-            print("No data to plot")
+        if not self.metrics["episode"]:
+            print("No metrics to plot.")
             return
         
-        # 1. Plot rewards
-        plt.figure(figsize=(10, 6))
-        plt.plot(episodes, self.metrics['episode_reward'], label='Episode Reward')
+        # Create a 2x2 grid of plots for key metrics
+        fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+        fig.suptitle(f'DQN Training Progress - {self.experiment_name}', fontsize=16)
         
-        # Plot evaluation rewards if available
-        eval_rewards = [(ep, reward) for ep, reward in zip(episodes, self.metrics['eval_reward']) 
-                         if reward != 'N/A']
-        if eval_rewards:
-            eval_episodes, eval_reward_values = zip(*eval_rewards)
-            plt.scatter(eval_episodes, eval_reward_values, color='red', marker='o', 
-                        label='Evaluation Reward')
+        # 1. Reward curve (with moving average)
+        self._plot_with_moving_avg(axs[0, 0], 
+                               self.metrics["episode"], 
+                               self.metrics["reward"],
+                               "Episode Rewards", "Episode", "Reward")
         
-        # Add smoothed rewards (moving average)
-        if len(episodes) >= 10:
-            window_size = min(100, len(episodes) // 10)
-            reward_values = [r for r in self.metrics['episode_reward'] if r != 'N/A']
-            if reward_values:
-                smoothed_rewards = np.convolve(reward_values, 
-                                              np.ones(window_size)/window_size, 
-                                              mode='valid')
-                plt.plot(episodes[window_size-1:window_size-1+len(smoothed_rewards)],
-                         smoothed_rewards, color='orange', 
-                         label=f'Smoothed Reward (window={window_size})')
+        # 2. Epsilon decay curve
+        axs[0, 1].plot(self.metrics["episode"], self.metrics["epsilon"])
+        axs[0, 1].set_title("Exploration Rate (ε)")
+        axs[0, 1].set_xlabel("Episode")
+        axs[0, 1].set_ylabel("Epsilon")
+        axs[0, 1].grid(True, alpha=0.3)
         
-        plt.xlabel('Episode')
-        plt.ylabel('Reward')
-        plt.title('Training Rewards')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
+        # 3. Episode length curve
+        self._plot_with_moving_avg(axs[1, 0],
+                               self.metrics["episode"],
+                               self.metrics["length"],
+                               "Episode Lengths", "Episode", "Steps")
+        
+        # 4. Loss curve (if available)
+        if "loss" in self.metrics and self.metrics["loss"]:
+            self._plot_with_moving_avg(axs[1, 1],
+                                   self.metrics["episode"],
+                                   self.metrics["loss"],
+                                   "Training Loss", "Episode", "Loss")
+        else:
+            axs[1, 1].set_visible(False)
+        
+        # Adjust layout
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        
+        # Save the figure
         if save:
-            reward_path = os.path.join(plots_dir, "rewards.png")
-            plt.savefig(reward_path)
-            print(f"Rewards plot saved to {reward_path}")
+            plt.savefig(os.path.join(self.viz_dir, "training_curves.png"), dpi=300)
         
-        # 2. Plot loss
+        # Show or close
+        if show:
+            plt.show()
+        else:
+            plt.close()
+        
+        # If we have evaluation data, plot that too
+        if "eval_episode" in self.metrics and self.metrics["eval_episode"]:
+            self._plot_eval_curve(save, show)
+    
+    def _plot_eval_curve(self, save=True, show=False):
+        """Plot evaluation results."""
         plt.figure(figsize=(10, 6))
-        loss_values = [(ep, loss) for ep, loss in zip(episodes, self.metrics['loss']) 
-                        if loss != 'N/A']
-        
-        if loss_values:
-            loss_episodes, loss_data = zip(*loss_values)
-            plt.plot(loss_episodes, loss_data)
-            plt.xlabel('Episode')
-            plt.ylabel('Loss')
-            plt.title('Training Loss')
-            plt.grid(True, alpha=0.3)
-            if save:
-                loss_path = os.path.join(plots_dir, "loss.png")
-                plt.savefig(loss_path)
-                print(f"Loss plot saved to {loss_path}")
-        
-        # 3. Plot epsilon decay
-        plt.figure(figsize=(10, 6))
-        epsilon_values = [(ep, eps) for ep, eps in zip(episodes, self.metrics['epsilon']) 
-                           if eps != 'N/A']
-        
-        if epsilon_values:
-            eps_episodes, eps_data = zip(*epsilon_values)
-            plt.plot(eps_episodes, eps_data)
-            plt.xlabel('Episode')
-            plt.ylabel('Epsilon')
-            plt.title('Exploration Rate (Epsilon)')
-            plt.grid(True, alpha=0.3)
-            if save:
-                eps_path = os.path.join(plots_dir, "epsilon.png")
-                plt.savefig(eps_path)
-                print(f"Epsilon plot saved to {eps_path}")
-        
-        # 4. Combined metrics plot
-        plt.figure(figsize=(15, 10))
-        
-        # Rewards subplot
-        plt.subplot(2, 2, 1)
-        plt.plot(episodes, self.metrics['episode_reward'], label='Episode Reward')
-        if eval_rewards:
-            plt.scatter(eval_episodes, eval_reward_values, color='red', marker='o', 
-                        label='Evaluation')
-        plt.xlabel('Episode')
-        plt.ylabel('Reward')
-        plt.title('Rewards')
-        plt.legend()
+        plt.plot(self.metrics["eval_episode"], self.metrics["eval_reward"], 'bo-')
+        plt.title("Evaluation Rewards")
+        plt.xlabel("Training Episode")
+        plt.ylabel("Mean Evaluation Reward")
         plt.grid(True, alpha=0.3)
         
-        # Loss subplot
-        plt.subplot(2, 2, 2)
-        if loss_values:
-            plt.plot(loss_episodes, loss_data)
-            plt.xlabel('Episode')
-            plt.ylabel('Loss')
-            plt.title('Training Loss')
-            plt.grid(True, alpha=0.3)
-        
-        # Epsilon subplot
-        plt.subplot(2, 2, 3)
-        if epsilon_values:
-            plt.plot(eps_episodes, eps_data)
-            plt.xlabel('Episode')
-            plt.ylabel('Epsilon')
-            plt.title('Exploration Rate')
-            plt.grid(True, alpha=0.3)
-        
-        # Q-values subplot
-        plt.subplot(2, 2, 4)
-        q_values = [(ep, q) for ep, q in zip(episodes, self.metrics['avg_q_value']) 
-                     if q != 'N/A']
-        if q_values:
-            q_episodes, q_data = zip(*q_values)
-            plt.plot(q_episodes, q_data)
-            plt.xlabel('Episode')
-            plt.ylabel('Average Q-Value')
-            plt.title('Q-Values')
-            plt.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
         if save:
-            combined_path = os.path.join(plots_dir, "combined_metrics.png")
-            plt.savefig(combined_path)
-            print(f"Combined metrics plot saved to {combined_path}")
+            plt.savefig(os.path.join(self.viz_dir, "eval_rewards.png"), dpi=300)
         
         if show:
             plt.show()
         else:
-            plt.close('all')
+            plt.close()
     
-    def print_episode_summary(self, episode, reward, avg_reward, loss, epsilon, steps):
+    def _plot_with_moving_avg(self, ax, x, y, title, xlabel, ylabel, window_size=100):
+        """Plot a metric with its moving average."""
+        # Plot raw data
+        ax.plot(x, y, alpha=0.3, color='blue', label='Raw')
+        
+        # Plot moving average if we have enough data
+        if len(y) >= window_size:
+            moving_avg = np.convolve(y, np.ones(window_size)/window_size, mode='valid')
+            ax.plot(x[window_size-1:], moving_avg, color='red', 
+                   label=f'Moving Avg (n={window_size})')
+        
+        # Set labels and grid
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    
+    def get_eval_data(self):
         """
-        Print a summary of the current episode to the console.
+        Get evaluation data for external use.
         
-        Args:
-            episode (int): Current episode number
-            reward (float): Reward for this episode
-            avg_reward (float): Average reward over recent episodes
-            loss (float): Average loss for this episode
-            epsilon (float): Current epsilon value
-            steps (int): Number of steps in this episode
+        Returns:
+            dict: Dictionary containing evaluation episodes and rewards
         """
-        time_elapsed = self._format_time(time.time() - self.start_time)
+        if "eval_episode" not in self.metrics:
+            return {"episodes": [], "rewards": []}
         
-        # Format the output
-        output = (f"Episode {episode} | "
-                 f"Reward: {reward:.2f} | "
-                 f"Avg Reward: {avg_reward:.2f} | "
-                 f"Loss: {loss:.6f} | "
-                 f"Epsilon: {epsilon:.4f} | "
-                 f"Steps: {steps} | "
-                 f"Time: {time_elapsed}")
-        
-        print(output)
+        return {
+            "episodes": self.metrics["eval_episode"],
+            "rewards": self.metrics["eval_reward"]
+        }
 
 
-# Test code for this module
+# Simple test if run directly
 if __name__ == "__main__":
-    # Create a test logger
-    logger = Logger(log_dir="test_logs")
-    
-    # Log some test hyperparameters
-    logger.log_hyperparameters({
-        "learning_rate": 0.0001,
-        "gamma": 0.99,
-        "batch_size": 32,
-        "memory_capacity": 10000,
-        "target_update_frequency": 1000
-    })
-    
-    # Generate some fake metrics
     import random
     
-    for episode in range(1, 101):
-        # Simulate some training metrics
-        reward = episode * 0.1 + random.uniform(-1, 1)
-        length = random.randint(100, 500)
-        loss = 1.0 / (episode + 10) + random.uniform(0, 0.1)
-        epsilon = max(0.1, 1.0 - episode * 0.01)
-        q_value = episode * 0.05 + random.uniform(0, 0.5)
+    # Create logger
+    logger = Logger(experiment_name="simple_test")
+    
+    # Simulate 200 training episodes
+    for ep in range(1, 201):
+        # Log random metrics
+        reward = -15 + ep * 0.1 + random.uniform(-5, 5)  # Gradually increasing with noise
+        length = random.randint(500, 1000)
+        epsilon = max(0.1, 1.0 - (ep / 200))
+        loss = max(0.01, 1.0 * (0.98 ** ep))
         
-        # Log metrics
-        eval_reward = episode + random.uniform(-2, 2) if episode % 10 == 0 else None
-        logger.log_metrics(
-            episode=episode,
-            episode_reward=reward,
-            episode_length=length,
-            loss=loss,
-            epsilon=epsilon,
-            avg_q_value=q_value,
-            eval_reward=eval_reward
-        )
+        logger.log_episode(ep, reward, length, epsilon, loss)
         
-        # Print episode summary
-        if episode % 10 == 0:
-            avg_reward = sum([logger.metrics['episode_reward'][i] for i in range(-10, 0)]) / 10
-            logger.print_episode_summary(
-                episode=episode,
-                reward=reward,
-                avg_reward=avg_reward,
-                loss=loss,
-                epsilon=epsilon,
-                steps=length
-            )
+        # Occasional evaluation
+        if ep % 50 == 0:
+            eval_rewards = [reward + random.uniform(-2, 5) for _ in range(5)]
+            logger.log_eval_episode(ep, eval_rewards)
     
-    # Log summary
-    logger.log_summary(
-        agent_stats={
-            "total_steps": 50000,
-            "final_epsilon": 0.1,
-            "memory_utilization": "75%"
-        },
-        additional_info={
-            "environment": "IceHockey-v5",
-            "hardware": "NVIDIA RTX 3080"
-        }
-    )
+    # Save metrics and generate plots
+    logger.save_metrics()
+    logger.plot_training_curves(show=True)
     
-    # Plot metrics
-    logger.plot_metrics(save=True, show=False)
-    
-    print("Logger test completed successfully!")
+    print(f"Test complete. Check logs in: {logger.log_dir}")

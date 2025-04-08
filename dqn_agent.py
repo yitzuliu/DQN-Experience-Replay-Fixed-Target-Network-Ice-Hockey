@@ -1,42 +1,18 @@
-# In this file, implement the DQN agent class that will:
-# - Initialize Q-network and target network
-# - Implement epsilon-greedy action selection
-# - Implement learning functionality according to original DQN algorithm:
-#   - Sample batches from replay memory
-#   - Calculate Q-values and target Q-values using target network
-#   - Update network weights using gradient descent
-#   - Update target network periodically
-# - Provide save/load functionality for the trained model
-#
-# This implementation follows the original DQN algorithm as described in the pseudocode:
-# Initialize replay memory D with capacity N
-# Initialize action-value network Q (θ₁) with random weights
-# Initialize target network Q_target (θ₂) ← θ₁
-#
-# For each episode = 1 to M:
-#     Initialize initial state S₁
-#
-#     For t = 1 to T:
-#         With probability ε, select a random action Aₜ (exploration)
-#         Otherwise, select Aₜ = argmaxₐ Q(Sₜ, a; θ₁) (exploitation)
-#
-#         Execute action Aₜ, observe reward Rₜ₊₁ and next state Sₜ₊₁
-#
-#         Store transition (Sₜ, Aₜ, Rₜ₊₁, Sₜ₊₁) into replay buffer D
-#
-#         Sample a random minibatch of transitions (Sⱼ, Aⱼ, Rⱼ₊₁, Sⱼ₊₁) from D
-#
-#         For each sample j in the minibatch:
-#             If Sⱼ₊₁ is terminal:
-#                 yⱼ ← Rⱼ₊₁
-#             Else:
-#                 yⱼ ← Rⱼ₊₁ + γ * maxₐ' Q_target(Sⱼ₊₁, a'; θ₂)
-#
-#         Perform gradient descent step to minimize:
-#             L = (yⱼ - Q(Sⱼ, Aⱼ; θ₁))²
-#
-#         Every C steps:
-#             Update target network: θ₂ ← θ₁
+"""
+DQN Agent Implementation
+
+This module implements the Deep Q-Network (DQN) agent that learns to play Atari Ice Hockey.
+The agent follows the algorithm introduced by Mnih et al. (2015) in "Human-level control
+through deep reinforcement learning" with the following key components:
+
+1. Deep Q-Network and Target Network
+2. Experience Replay Memory
+3. ε-greedy Action Selection
+4. Bellman Equation-based Q-learning
+
+Each component is carefully implemented with educational comments to help understand
+the reinforcement learning process.
+"""
 
 import numpy as np          # For numerical computations
 import random               # For random action selection (ε-greedy)
@@ -44,334 +20,425 @@ import torch                # PyTorch deep learning framework
 import torch.nn as nn       # Neural network modules
 import torch.optim as optim # Optimization algorithms
 import os                   # For file operations
+import math                 # For mathematical operations
 
+# Import project modules
 from q_network import create_q_network  # Function to create Q-network
-from replay_memory import ReplayMemory  # Experience replay memory
-import config                          # Configuration parameters
+import config               # Configuration parameters
+import utils                # Utility functions
+
 
 class DQNAgent:
     """
-    Deep Q-Network agent for playing Atari Ice Hockey
-    Following the original DQN algorithm
-    """
-    def __init__(self, env, device=None):
-        """
-        Initialize the DQN agent
-        
-        Args:
-            env: Gymnasium environment
-            device: Device to run the model on ("cuda", "mps", or "cpu")
-        """
-        # Environment and device settings
-        self.env = env                        
-        
-        # Auto-select device if not specified
-        if device is None:
-            import utils
-            self.device = utils.setup_device()
-        else:
-            self.device = device
-            
-        self.action_size = env.action_space.n 
-        
-        # Initialize Q-Network (policy network)
-        # This network is used to select actions and is updated through learning
-        self.q_network = create_q_network(env).to(self.device)
-        
-        # Initialize Target Network with same weights
-        self.target_network = create_q_network(env).to(self.device)
-        self.update_target_network()  # Copy initial weights from Q-Network
-        self.target_network.eval()    # Set to evaluation mode (no gradients needed)
-        
-        # Initialize optimizer using Adam instead of SGD
-        # Adam (Adaptive Moment Estimation) is often more efficient for training neural networks
-        # It adaptively adjusts the learning rates and incorporates momentum
-        self.optimizer = optim.Adam(self.q_network.parameters(), lr=config.LEARNING_RATE)
-        
-        # Initialize experience replay memory
-        if config.MEMORY_IMPLEMENTATION == 'numpy' or config.MEMORY_IMPLEMENTATION == 'optimized':
-            # Support for optimized memory implementation
-            state_shape = env.observation_space.shape
-            self.memory = ReplayMemory(capacity=config.MEMORY_CAPACITY, state_shape=state_shape)
-        else:
-            self.memory = ReplayMemory(capacity=config.MEMORY_CAPACITY)
-        
-        # Exploration parameters (ε-greedy)
-        self.epsilon = config.EPSILON_START     # Start with high exploration
-        self.epsilon_end = config.EPSILON_END   # End with low exploration
-        self.epsilon_decay = config.EPSILON_DECAY  # How quickly to decay
-        
-        # Training parameters
-        self.gamma = config.GAMMA                # Discount factor for future rewards
-        self.batch_size = config.BATCH_SIZE      # Number of experiences per batch
-        self.target_update_frequency = config.TARGET_UPDATE_FREQUENCY  # How often to update target
-        self.steps_done = 0                      # Counter for total steps
-        
-        # Metrics tracking
-        self.losses = []
-        self.q_values = []
-        
-        # Gradient accumulation steps counter
-        self.accumulation_steps = 0
+    Deep Q-Network (DQN) Agent
     
-    def select_action(self, state, evaluate=False):
+    The DQN Agent combines deep learning and reinforcement learning to learn an optimal
+    policy for playing Atari games. It uses a deep neural network to approximate the
+    Q-function, which estimates the expected future rewards for actions in each state.
+    
+    Key methods:
+    - select_action: Choose actions based on ε-greedy policy
+    - store_transition: Store experiences in replay memory
+    - learn: Update Q-network based on sampled experiences
+    - update_target_network: Periodically update target network with Q-network weights
+    """
+    
+    def __init__(self, state_shape, n_actions, memory, device=None):
         """
-        Select action using epsilon-greedy policy:
-        - With probability ε, select random action (exploration)
-        - With probability 1-ε, select action with highest Q-value (exploitation)
+        Initialize the DQN Agent with networks, replay memory, and parameters.
         
         Args:
-            state: Current state observation
-            evaluate: If True, use greedy policy (ε=0)
+            state_shape (tuple): Shape of state observations (C, H, W)
+            n_actions (int): Number of possible actions
+            memory: Experience replay memory instance
+            device (torch.device, optional): Device to run on (auto-detected if None)
+        """
+        # Detect device (CPU/GPU) if not provided
+        self.device = device if device is not None else utils.get_device()
+        print(f"DQN Agent running on: {self.device}")
+        
+        # Store action space size
+        self.n_actions = n_actions
+        
+        # Create networks
+        # Initialize action-value network Q (θ₁) with random weights - PSEUDOCODE LINE 2
+        self.q_network = create_q_network(state_shape, n_actions, self.device)
+        print(f"Created Q-Network with {sum(p.numel() for p in self.q_network.parameters()):,} parameters")
+        
+        # Initialize target network Q_target (θ₂) ← θ₁ - PSEUDOCODE LINE 3
+        self.target_network = create_q_network(state_shape, n_actions, self.device)
+        self.target_network.load_state_dict(self.q_network.state_dict())  # Copy weights from Q-network
+        self.target_network.eval()  # Set to evaluation mode (no gradient updates)
+        print("Target network initialized with Q-network weights")
+        
+        # Setup optimizer - Adam with learning rate from config
+        self.optimizer = optim.Adam(
+            self.q_network.parameters(), 
+            lr=config.LEARNING_RATE
+        )
+        
+        # Setup loss function - Huber Loss (more robust than MSE)
+        # Huber loss combines MSE for small errors and MAE for large errors
+        # This makes it less sensitive to outliers in the value estimates
+        self.loss_fn = nn.SmoothL1Loss()  
+        
+        # Store replay memory
+        self.memory = memory
+        
+        # Initialize epsilon for exploration-exploitation tradeoff
+        self.epsilon = config.EPSILON_START
+        self.epsilon_end = config.EPSILON_END
+        self.epsilon_decay = config.EPSILON_DECAY
+        
+        # Initialize step counter for updating target network
+        self.steps_done = 0
+        
+        # Track training metrics
+        self.losses = []
+        self.avg_q_values = []
+        
+        # Enable cuDNN benchmarking for faster convolutions if using CUDA
+        if self.device.type == 'cuda':
+            torch.backends.cudnn.benchmark = True
+            print("CUDA optimizations enabled for faster training")
+        
+        print("DQN Agent initialized successfully")
+    
+    def select_action(self, state, evaluate=None):
+        """
+        Select action using ε-greedy policy.
+        
+        This is a core component of the DQN algorithm that balances exploration and exploitation:
+        - With probability ε, select a random action for exploration
+        - With probability 1-ε, select the action with highest Q-value for exploitation
+        
+        Args:
+            state (torch.Tensor): Current state observation
+            evaluate (bool, optional): Special mode for evaluation only. When True, forces pure exploitation
+                                       by setting ε=0. If None, uses the value from config.DEFAULT_EVALUATE_MODE.
+                                       Default is None.
             
         Returns:
             int: Selected action
         """
-        # Convert state to PyTorch tensor
-        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        # Use config default if evaluate is None
+        if evaluate is None:
+            evaluate = config.DEFAULT_EVALUATE_MODE
         
-        # In evaluation mode, always choose the best action
-        epsilon = 0 if evaluate else self.epsilon
+        # Decay epsilon value based on steps
+        # Linear annealing: epsilon_start to epsilon_end over epsilon_decay steps
+        if not evaluate:
+            self.steps_done += 1
+            self.epsilon = max(
+                self.epsilon_end, 
+                self.epsilon_start - (self.steps_done / self.epsilon_decay) * 
+                (self.epsilon_start - self.epsilon_end)
+            )
         
-        # Decide whether to explore or exploit
-        if random.random() > epsilon:
-            # Exploit: choose action with highest Q-value
-            with torch.no_grad():  # No gradients needed for action selection
-                self.q_network.eval()  # Set to evaluation mode
-                q_values = self.q_network(state)  # Get Q-values for all actions
-                self.q_network.train()  # Set back to training mode
-                
-                # Record Q-values for monitoring
-                if not evaluate:
-                    self.q_values.append(q_values.max().item())
-                
-                # Return action with highest Q-value
-                return torch.argmax(q_values).item()
+        # Use greedy policy for evaluation
+        if evaluate:
+            epsilon = 0.0
         else:
-            # Explore: choose random action
-            return random.randrange(self.action_size)
-    
-    def update_epsilon(self):
+            epsilon = self.epsilon
+        
+        # With probability ε, select a random action (exploration) - PSEUDOCODE LINE 7
+        if random.random() < epsilon:
+            action = random.randrange(self.n_actions)
+            return action
+        
+        # Otherwise, select action with highest Q-value (exploitation) - PSEUDOCODE LINE 8
+        else:
+            # Convert state to proper format and move to device
+            if not isinstance(state, torch.Tensor):
+                state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+            else:
+                state = state.unsqueeze(0).to(self.device)
+            
+            # Set network to evaluation mode and disable gradients for inference
+            self.q_network.eval()
+            with torch.no_grad():
+                q_values = self.q_network(state)
+                action = q_values.max(1)[1].item()  # argmax of Q-values
+                
+                # Track average Q-value for monitoring
+                if not evaluate and len(self.avg_q_values) < 10000:
+                    self.avg_q_values.append(q_values.mean().item())
+            
+            # Set network back to training mode
+            self.q_network.train()
+            return action
+        
+    def store_transition(self, state, action, reward, next_state, done):
         """
-        Update epsilon value according to linear decay schedule
-        """
-        # Linear decay from EPSILON_START to EPSILON_END over EPSILON_DECAY steps
-        self.epsilon = max(
-            self.epsilon_end, 
-            self.epsilon - (self.epsilon - self.epsilon_end) / self.epsilon_decay
-        )
-    
-    def store_experience(self, state, action, reward, next_state, done):
-        """
-        Store transition in replay memory
+        Store transition in replay memory.
+        
+        This implements PSEUDOCODE LINE 10:
+        "Store transition (Sₜ, Aₜ, Rₜ₊₁, Sₜ₊₁) into replay buffer D"
         
         Args:
-            state: Current state
-            action: Chosen action
-            reward: Received reward
-            next_state: Next state
-            done: Whether episode terminated
+            state: Current state observation
+            action: Action taken
+            reward: Reward received
+            next_state: Next state observation
+            done: Whether the episode ended (True/False)
         """
-        self.memory.add(state, action, reward, next_state, done)
-    
-    def learn(self, reset_grads=True):
-        """
-        Learn from a batch of experiences using Q-learning with target network
+        # Convert boolean done to integer (1 for done, 0 for not done)
+        done_int = 1 if done else 0
         
-        This method implements:
-        - Sampling from replay memory [Pseudocode step 11]
-        - Computing target Q-values [Pseudocode step 12]
-        - Updating network via gradient descent [Pseudocode step 13]
-        - Updating target network periodically [Pseudocode step 14]
-        Args:
-            reset_grads: Whether to reset gradients (True for first accumulation step)
+        # Store transition in replay memory
+        self.memory.add(state, action, reward, next_state, done_int)
+    
+    def learn(self):
+        """
+        Update Q-network using sampled batch from replay memory.
+        
+        This implements PSEUDOCODE LINES 11-13:
+        - Sample a random minibatch of transitions
+        - Calculate target Q-values using Bellman equation
+        - Perform gradient descent to minimize the loss
+        
         Returns:
-            float: Loss value or None if not enough samples
+            float: Loss value for monitoring
         """
-        # Check if enough samples in memory
-        if not self.memory.can_sample(self.batch_size):
+        # Check if enough samples in memory for learning
+        if not self.memory.can_sample(config.BATCH_SIZE):
             return None
         
-        # 1. Sample random minibatch from replay memory
-        states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
-        
-        # Convert to PyTorch tensors and move to device
+        # Sample random minibatch of transitions from replay memory - PSEUDOCODE LINE 11
         if self.device.type == 'cuda':
-            states = states.to(self.device, non_blocking=True)
-            actions = actions.to(self.device, non_blocking=True)
-            rewards = rewards.to(self.device, non_blocking=True)
-            next_states = next_states.to(self.device, non_blocking=True)
-            dones = dones.to(self.device, non_blocking=True)
+            # Use pinned memory for faster CPU to GPU transfer
+            states, actions, rewards, next_states, dones = self.memory.sample_pinned(config.BATCH_SIZE)
         else:
-            states = states.to(self.device)
-            actions = actions.to(self.device)
-            rewards = rewards.to(self.device)
-            next_states = next_states.to(self.device)
-            dones = dones.to(self.device)
+            # Regular sampling for CPU
+            states, actions, rewards, next_states, dones = self.memory.sample(config.BATCH_SIZE)
         
-        # 2. Compute current Q-values: Q(Sⱼ, Aⱼ; θ₁)
-        current_q_values = self.q_network(states).gather(1, actions)
+        # Move tensors to the correct device
+        states = states.to(self.device)
+        actions = actions.to(self.device)
+        rewards = rewards.to(self.device)
+        next_states = next_states.to(self.device)
+        dones = dones.to(self.device)
         
-        # 3. Compute target Q-values
-        with torch.no_grad():  # Target computation doesn't need gradients
-            # Get maximum Q-values for next states using target network
-            max_next_q_values = self.target_network(next_states).max(1)[0].unsqueeze(1)
+        # Compute current Q-values: Q(s, a) - the model computes Q(s) for all a
+        q_values = self.q_network(states)
+        # Select the Q-value for the action that was actually taken
+        q_values = q_values.gather(1, actions)
+        
+        # Compute next state Q-values using target network: max_a' Q_target(s', a')
+        with torch.no_grad():  # No need for gradients for target values
+            # Use target network to compute next state Q-values
+            # This stabilizes learning by separating prediction from the target
+            next_q_values = self.target_network(next_states).max(1, keepdim=True)[0]
             
-            # If next state is terminal (done=1): target = reward
-            # Else: target = reward + γ * max_a' Q_target(next_state, a')
-            target_q_values = rewards + self.gamma * max_next_q_values * (1 - dones)
+            # Compute target Q values using Bellman equation - PSEUDOCODE LINE 12
+            # If next state is terminal (done): yⱼ ← Rⱼ₊₁
+            # Else: yⱼ ← Rⱼ₊₁ + γ * maxₐ' Q_target(Sⱼ₊₁, a'; θ₂)
+            target_q_values = rewards + (1 - dones) * config.GAMMA * next_q_values
         
-        # 4. Compute loss: L = (yⱼ - Q(Sⱼ, Aⱼ; θ₁))²
-        loss = nn.functional.mse_loss(current_q_values, target_q_values)
+        # Compute loss - how far current Q-values are from target Q-values
+        # PSEUDOCODE LINE 13: L = (yⱼ - Q(Sⱼ, Aⱼ; θ₁))²
+        loss = self.loss_fn(q_values, target_q_values)
         
-        # 5. Perform gradient descent with accumulation
-        # Only reset gradients on the first accumulation step
-        if reset_grads:
-            self.optimizer.zero_grad()
-            
-        # Scale loss to maintain mathematical equivalence
-        # If using N batches, each batch's gradient should be scaled to 1/N
-        scaled_loss = loss / config.GRADIENT_ACCUMULATION_STEPS
+        # Perform gradient descent step - PSEUDOCODE LINE 13 (continued)
+        self.optimizer.zero_grad()  # Clear previous gradients
+        loss.backward()  # Compute gradients
         
-        # Backpropagate to compute gradients (but do not update yet)
-        scaled_loss.backward()
+        # Gradient clipping to prevent exploding gradients
+        torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=10.0)
         
-        # Record accumulation steps
-        self.accumulation_steps += 1
+        # Accumulate gradients before optimizing if specified
+        if (self.steps_done % config.GRADIENT_ACCUMULATION_STEPS) == 0:
+            self.optimizer.step()  # Update network weights
         
-        # 6. Update weights only when accumulation steps are reached
-        if self.accumulation_steps >= config.GRADIENT_ACCUMULATION_STEPS:
-            # Gradient clipping (if not None)
-            for param in self.q_network.parameters():
-                if param.grad is not None:
-                    param.grad.data.clamp_(-1, 1)
-            
-            # Update parameters
-            self.optimizer.step()
-            self.optimizer.zero_grad()  # Reset gradients
-            self.accumulation_steps = 0  # Reset counter
-            
-            # Increment total steps counter
-            self.steps_done += 1
-            
-            # 7. Every C steps, update target network: θ₂ ← θ₁
-            if self.steps_done % self.target_update_frequency == 0:
-                self.update_target_network()
+        # Track loss for monitoring
+        loss_value = loss.item()
+        self.losses.append(loss_value)
         
-        # Record loss for monitoring (used unscaled loss)
-        self.losses.append(loss.item())
-        
-        return loss.item()
+        return loss_value
     
     def update_target_network(self):
         """
-        Update target network by copying parameters from Q-network: θ₂ ← θ₁
+        Update target network with Q-network weights.
+        
+        This implements PSEUDOCODE LINE 14:
+        "Every C steps: Update target network: θ₂ ← θ₁"
+        
+        This is done periodically to stabilize training, as it prevents the target from
+        constantly changing while the Q-network is being updated.
         """
         self.target_network.load_state_dict(self.q_network.state_dict())
+        return True
     
-    def save_model(self, path="models/dqn_icehockey.pth"):
+    def save_model(self, filepath):
         """
-        Save model weights to disk
+        Save trained model weights to disk.
         
         Args:
-            path: Path where to save the model
+            filepath (str): Path to save the model
+            
+        Returns:
+            bool: True if saving was successful
         """
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # Fix the directory issue - ensure filepath has directory component
+        if os.path.dirname(filepath) == '':
+            # No directory in path, save in current directory
+            directory = './models'
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+            filepath = os.path.join(directory, os.path.basename(filepath))
+        else:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
-        # Save model state
-        torch.save({
+        # Save model with useful information
+        checkpoint = {
             'q_network_state_dict': self.q_network.state_dict(),
             'target_network_state_dict': self.target_network.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'epsilon': self.epsilon,
-            'steps_done': self.steps_done
-        }, path)
+            'steps_done': self.steps_done,
+            'avg_q_values': self.avg_q_values,
+            'losses': self.losses
+        }
         
-        print(f"Model saved to {path}")
+        # Use PyTorch's recommended way to save models
+        torch.save(checkpoint, filepath)
+        print(f"Model saved to {filepath}")
+        return True
     
-    def load_model(self, path="models/dqn_icehockey.pth"):
+    def load_model(self, filepath):
         """
-        Load model weights from disk
+        Load trained model weights from disk.
         
         Args:
-            path: Path to the saved model
+            filepath (str): Path to the saved model
+            
+        Returns:
+            bool: True if loading was successful
         """
-        if not os.path.exists(path):
-            print(f"No model found at {path}")
+        if not os.path.exists(filepath):
+            print(f"Model file not found: {filepath}")
             return False
         
-        # Load checkpoint
-        checkpoint = torch.load(path, map_location=self.device)
+        # Load checkpoint to appropriate device
+        checkpoint = torch.load(filepath, map_location=self.device)
         
-        # Load model state
+        # Load parameters and states
         self.q_network.load_state_dict(checkpoint['q_network_state_dict'])
         self.target_network.load_state_dict(checkpoint['target_network_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.epsilon = checkpoint['epsilon']
-        self.steps_done = checkpoint['steps_done']
         
-        # Set target network to evaluation mode
-        self.target_network.eval()
+        # Load training statistics
+        self.epsilon = checkpoint.get('epsilon', self.epsilon)
+        self.steps_done = checkpoint.get('steps_done', 0)
+        self.avg_q_values = checkpoint.get('avg_q_values', [])
+        self.losses = checkpoint.get('losses', [])
         
-        print(f"Model loaded from {path}")
+        print(f"Model loaded from {filepath} (trained for {self.steps_done} steps)")
         return True
     
     def get_statistics(self):
         """
-        Get training statistics
+        Get agent's training statistics.
         
         Returns:
             dict: Dictionary with training statistics
         """
-        return {
-            'steps': self.steps_done,
+        stats = {
+            'steps_done': self.steps_done,
             'epsilon': self.epsilon,
-            'avg_loss': np.mean(self.losses[-100:]) if self.losses else 0,
-            'avg_q_value': np.mean(self.q_values[-100:]) if self.q_values else 0
+            'avg_q_value': np.mean(self.avg_q_values[-1000:]) if self.avg_q_values else 0,
+            'avg_loss': np.mean(self.losses[-1000:]) if self.losses else 0,
         }
+        return stats
+    
+    @property
+    def epsilon_start(self):
+        """Return the starting epsilon value from config"""
+        return config.EPSILON_START
 
 
-# Test code for this module
+# Testing code
 if __name__ == "__main__":
-    import env_wrappers
+    import time
+    from replay_memory import OptimizedArrayReplayMemory
     
-    # Create environment
-    env = env_wrappers.make_env()
-    print(f"Environment: {config.ENV_NAME}")
+    # Display system information
+    system_info = utils.get_system_info()
+    print("System Information:")
+    print(f"OS: {system_info['os']} with PyTorch {system_info['torch_version']}")
     
-    # Create agent
-    agent = DQNAgent(env)
-    print(f"DQN Agent created on device: {agent.device}")
+    if system_info.get('cuda_available', False):
+        print(f"GPU: {system_info.get('gpu_name', 'Unknown')} "
+              f"({system_info.get('gpu_memory_gb', 'Unknown')} GB)")
+    elif system_info.get('mps_available', False):
+        print("GPU: Apple Silicon (Metal)")
+    else:
+        print("No GPU detected, using CPU only")
+    
+    # Create sample state and replay memory
+    state_shape = (config.FRAME_STACK, config.FRAME_HEIGHT, config.FRAME_WIDTH)
+    memory = OptimizedArrayReplayMemory(
+        capacity=10000,
+        state_shape=state_shape
+    )
+    
+    # Create DQN agent
+    agent = DQNAgent(
+        state_shape=state_shape,
+        n_actions=config.ACTION_SPACE_SIZE,
+        memory=memory
+    )
     
     # Test action selection
-    state, _ = env.reset()
-    action = agent.select_action(state)
-    print(f"Selected action: {action}")
+    print("\nTesting action selection...")
+    test_state = np.random.rand(*state_shape).astype(np.float32)
     
-    # Test storing experience
-    next_state, reward, terminated, truncated, _ = env.step(action)
-    agent.store_experience(state, action, reward, next_state, terminated)
-    print(f"Experience stored, memory size: {len(agent.memory)}")
+    # Test exploratory action
+    agent.epsilon = 1.0  # Force exploration
+    action = agent.select_action(test_state)
+    print(f"Exploratory action (ε=1.0): {action}")
     
-    # Add more experiences for testing learning
-    for _ in range(agent.batch_size - 1):
-        action = agent.select_action(next_state)
-        state = next_state
-        next_state, reward, terminated, truncated, _ = env.step(action)
-        agent.store_experience(state, action, reward, next_state, terminated or truncated)
-        if terminated or truncated:
-            state, _ = env.reset()
+    # Test exploitative action
+    agent.epsilon = 0.0  # Force exploitation
+    action = agent.select_action(test_state)
+    print(f"Exploitative action (ε=0.0): {action}")
     
-    # Test learning
+    # Test experience storage and learning
+    print("\nTesting experience storage and learning...")
+    
+    # Fill memory with some random transitions
+    for i in range(config.BATCH_SIZE * 2):
+        state = np.random.rand(*state_shape).astype(np.float32)
+        action = random.randint(0, config.ACTION_SPACE_SIZE - 1)
+        reward = random.uniform(-1, 1)
+        next_state = np.random.rand(*state_shape).astype(np.float32)
+        done = random.random() > 0.8
+        
+        agent.store_transition(state, action, reward, next_state, done)
+    
+    # Test learning step
+    start_time = time.time()
     loss = agent.learn()
-    print(f"Learning step performed, loss: {loss}")
+    end_time = time.time()
     
-    # Test saving and loading
-    agent.save_model("models/test_model.pth")
-    agent.load_model("models/test_model.pth")
+    print(f"Learning step completed in {(end_time - start_time)*1000:.2f}ms with loss: {loss:.6f}")
     
-    # Clean up
-    env.close()
+    # Test target network update
+    start_time = time.time()
+    agent.update_target_network()
+    end_time = time.time()
     
-    print("DQN Agent test completed successfully!")
+    print(f"Target network updated in {(end_time - start_time)*1000:.2f}ms")
+    
+    # Test model saving and loading
+    test_save_path = "models/test_model.pth"
+    os.makedirs(os.path.dirname(test_save_path), exist_ok=True)
+    agent.save_model(test_save_path)
+    agent.load_model(test_save_path)
+    
+    # Clean up test file
+    if os.path.exists(test_save_path):
+        os.remove(test_save_path)
+    
+    print("\nAll DQN agent tests completed successfully!")

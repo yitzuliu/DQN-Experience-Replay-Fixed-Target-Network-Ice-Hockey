@@ -1,237 +1,368 @@
-# In this file, implement the Q-network architecture using PyTorch:
-# - Define a neural network class inheriting from nn.Module
-# - Set up appropriate layers for Atari input processing:
-#   - Convolutional layers for image processing
-#   - Fully connected layers
-# - Implement forward pass
-# - Consider appropriate activation functions (ReLU, etc.)
-#
-# The network should take preprocessed game frames as input and
-# output Q-values for each possible action in Ice Hockey.
+"""
+Q-Network Architecture for DQN
 
-# Q-Network Design Notes:
-# 1. Input Structure:
-#    - Input will be raw game frames (RGB images) from the Ice Hockey environment
-#    - Shape will be something like (batch_size, frames_stacked, height, width, channels)
-#      where frames_stacked is often 4 consecutive frames to capture motion
-#
-# 2. Convolutional Layers:
-#    - Purpose: Extract visual features from game frames
-#    - We'll use 3 conv layers with increasing filter counts
-#    - Pattern: 32 filters → 64 filters → 64 filters
-#    - Stride parameters reduce spatial dimensions (downsampling)
-#    - ReLU activation after each conv layer adds non-linearity
-#
-# 3. Flatten Operation:
-#    - Converts the 3D feature maps to 1D vector for fully connected layers
-#
-# 4. Fully Connected Layers:
-#    - Process extracted features to estimate Q-values
-#    - We'll use 1 hidden layer with 512 neurons
-#    - Final layer will have num_actions neurons (output size depends on action space)
-#    - ReLU activation for hidden layer but not for output layer
-#
-# 5. Output:
-#    - Q-values for each possible action in the environment
-#    - No activation on final layer (raw Q-values)
-#
-# 6. Initialization:
-#    - We'll use Kaiming/He initialization for better performance with ReLU
-#    - Initialize bias terms to zeros
-#
-# 7. Utility Functions:
-#    - Factory function to create networks based on environment parameters
-#    - Testing code to verify network structure and forward pass
+This module defines the neural network architecture used to approximate the Q-function
+in Deep Q-Network (DQN) reinforcement learning. The architecture follows the design
+introduced in the original DQN paper by Mnih et al. (2015), with modifications to
+allow for different network depths.
 
-# 導入必要的庫
-import torch                     # PyTorch主要庫，用於構建和訓練神經網絡
-import torch.nn as nn            # 神經網絡模組庫，提供網絡層和組件
-import torch.nn.functional as F  # 函數庫，提供激活函數等功能
-import gymnasium as gym          # Gymnasium庫，用於環境交互
-import config                    # 配置文件，包含環境和訓練參數
+Key components:
+1. Convolutional layers for visual feature extraction
+2. Fully connected layers for Q-value estimation
+3. Configurable network depth via hyperparameters
 
-class QNetwork(nn.Module):
+Hardware optimizations:
+1. Efficient data representation for GPU processing
+2. Memory-optimized parameter initialization
+3. Batch normalization for faster training
+"""
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+import config
+import utils
+
+
+class DQN(nn.Module):
     """
-    CNN-based Q-Network for processing Atari game frames and predicting Q-values
-    這是一個基於卷積神經網絡(CNN)的Q網絡，用於處理Atari遊戲畫面並預測每個動作的Q值。
+    Deep Q-Network for approximating Q-values from raw game frames.
+    
+    The network takes preprocessed game frames as input and outputs Q-values
+    for each possible action. Architecture includes convolutional layers for
+    feature extraction followed by fully connected layers for Q-value prediction.
+    
+    Network depth can be configured from 1-3 convolutional layers, allowing for
+    trade-offs between model complexity and computational efficiency.
     """
-    def __init__(self, input_shape, num_actions):
+    
+    def __init__(self, input_shape, n_actions, device, use_two_layers=False, use_three_layers=True):
         """
-        Initialize the Q-Network
+        Initialize Q-Network with configurable depth.
+        
         Args:
-            input_shape (tuple): Shape of input observations (frames, height, width, channels)
-            num_actions (int): Number of possible actions in the environment
-        參數:
-            input_shape (tuple): 輸入觀察的形狀 (幀數, 高度, 寬度, 通道數)
-            num_actions (int): 環境中可能的動作數量
+            input_shape (tuple): Shape of input observations (C, H, W)
+            n_actions (int): Number of possible actions (output size)
+            device (torch.device): Device to run the model on (CPU/GPU/MPS)
+            use_two_layers (bool): Whether to use 2 convolutional layers 
+            use_three_layers (bool): Whether to use 3 convolutional layers
+                                     (overrides use_two_layers if True)
         """
-
-        # Call the parent class constructor
-        # 調用父類構造函數
-        super(QNetwork, self).__init__()
+        super(DQN, self).__init__()
         
-        # Extract dimensions from input shape
-        # 從輸入形狀中提取維度
-        self.frames, self.height, self.width, self.channels = input_shape
+        self.device = device
+        self.input_shape = input_shape
+        self.n_actions = n_actions
         
-        # Convolutional layers - used to extract features from images 
-        # First convolutional layer: takes stacked frames as input
-        # The input shape is (batch_size, frames * channels, height, width)
-        # The number of input channels is frames * channels
-        # The number of output channels is 32
-        # The kernel size is 8x8 and the stride is 4
-        self.conv1 = nn.Conv2d(self.frames * self.channels, 32, kernel_size=8, stride=4)
-        # Second convolutional layer: takes the output of the first layer as input
-        # The number of input channels is 32
-        # The number of output channels is 64
-        # The kernel size is 4x4 and the stride is 2
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        # Third convolutional layer: takes the output of the second layer as input
-        # The number of input channels is 64
-        # The number of output channels is 64
-        # The kernel size is 3x3 and the stride is 1
-        # This layer is only used if self.use_two_conv_layers is False
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+        # Input channels (usually 4 for frame stacking)
+        c, h, w = input_shape
         
-        # Store the number of actions
-        self.use_two_conv_layers = config.USE_TWO_CONV_LAYERS
-
-        # Calculate the input size for the fully connected layer
-        def conv2d_size_out(size, kernel_size, stride):
-            return (size - (kernel_size - 1) - 1) // stride + 1
+        # --- Feature Extraction: Convolutional Layers ---
         
-        # according to the number of convolutional layers, calculate the input size for the fully connected layer
-        if self.use_two_conv_layers:
-            # calculate the output size after two convolutional layers
-            conv_width = conv2d_size_out(conv2d_size_out(self.width, 8, 4), 4, 2)
-            conv_height = conv2d_size_out(conv2d_size_out(self.height, 8, 4), 4, 2)
-            linear_input_size = conv_width * conv_height * 64
-        else:
-            # calculate the output size after three convolutional layers
-            conv_width = conv2d_size_out(conv2d_size_out(conv2d_size_out(self.width, 8, 4), 4, 2), 3, 1)
-            conv_height = conv2d_size_out(conv2d_size_out(conv2d_size_out(self.height, 8, 4), 4, 2), 3, 1)
-            linear_input_size = conv_width * conv_height * 64
+        # First convolutional layer (always used)
+        self.conv1 = nn.Conv2d(in_channels=c, out_channels=32, kernel_size=8, stride=4)
+        self.bn1 = nn.BatchNorm2d(32)  # Batch normalization for faster training
         
-        # Fully connected layers - used to process the features extracted by the convolutional layers
-        self.fc1 = nn.Linear(linear_input_size, 512)
-        self.fc2 = nn.Linear(512, num_actions)
+        # Second convolutional layer (conditional)
+        if use_two_layers or use_three_layers:
+            self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2)
+            self.bn2 = nn.BatchNorm2d(64)
         
-        # Initialize weights
-        # 初始化權重
+        # Third convolutional layer (conditional)
+        if use_three_layers:
+            self.conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1)
+            self.bn3 = nn.BatchNorm2d(64)
+        
+        # Calculate the size of the feature maps after convolutions
+        # This calculation prevents hardcoding the size and adapts to input dimensions
+        conv_output_size = self._calculate_conv_output_size(h, w, use_two_layers, use_three_layers)
+        
+        # --- Q-Value Estimation: Fully Connected Layers ---
+        
+        # First fully connected layer
+        self.fc1 = nn.Linear(in_features=conv_output_size, out_features=512)
+        
+        # Output layer: one value per action
+        self.fc2 = nn.Linear(in_features=512, out_features=n_actions)
+        
+        # Initialize weights using Kaiming/He initialization for better gradient flow
         self._initialize_weights()
+        
+        # Move model to the specified device (GPU/CPU)
+        self.to(device)
+        
+        # Log model architecture decisions
+        layers_used = 1
+        if use_two_layers:
+            layers_used = 2
+        if use_three_layers:
+            layers_used = 3
+        print(f"Created DQN with {layers_used} convolutional layer(s), output size: {n_actions}")
+    
+    def _calculate_conv_output_size(self, h, w, use_two_layers, use_three_layers):
+        """
+        Calculate the output size of the convolutional layers.
+        
+        This eliminates the need for hardcoding the size and makes the model
+        adaptable to different input dimensions.
+        
+        Formula: ((W-K+2P)/S)+1, where:
+        - W: input size
+        - K: kernel size
+        - P: padding
+        - S: stride
+        
+        Args:
+            h (int): Height of input
+            w (int): Width of input
+            use_two_layers (bool): Whether using 2 conv layers
+            use_three_layers (bool): Whether using 3 conv layers
+            
+        Returns:
+            int: Flattened size of the convolutional output
+        """
+        # First conv layer: 8x8 kernel, stride 4, no padding
+        h = (h - 8) // 4 + 1
+        w = (w - 8) // 4 + 1
+        
+        if use_two_layers or use_three_layers:
+            # Second conv layer: 4x4 kernel, stride 2, no padding
+            h = (h - 4) // 2 + 1
+            w = (w - 4) // 2 + 1
+        
+        if use_three_layers:
+            # Third conv layer: 3x3 kernel, stride 1, no padding
+            h = (h - 3) // 1 + 1
+            w = (w - 3) // 1 + 1
+        
+        # If using 3 layers, output has 64 channels
+        # If using 2 layers, output has 64 channels
+        # If using 1 layer, output has 32 channels
+        channels = 32
+        if use_two_layers or use_three_layers:
+            channels = 64
+            
+        return channels * h * w
     
     def _initialize_weights(self):
-        """Initialize network weights using Kaiming initialization
-        使用Kaiming初始化方法初始化網絡權重。
-        這種初始化方法特別適合ReLU激活函數，有助於防止梯度消失問題。
         """
-        for module in self.modules():
-            if isinstance(module, (nn.Conv2d, nn.Linear)):
-                # Kaiming initialization for convolutional and linear layers
-                # 對卷積層和線性層使用kaiming_normal_初始化權重
-                nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
-                # Initialize bias to zero
-                # 將偏置初始化為0
-                # 這是為了確保在訓練開始時，所有神經元的輸出都是0，這樣可以避免初始階段的偏差。
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
+        Initialize network weights for better training performance.
+        
+        Uses Kaiming/He initialization for convolutional and linear layers,
+        which is particularly effective for networks with ReLU activations.
+        """
+        # Initialize convolutional layers with ReLU-specific initialization
+        nn.init.kaiming_normal_(self.conv1.weight, nonlinearity='relu')
+        nn.init.constant_(self.conv1.bias, 0)
+        
+        if hasattr(self, 'conv2'):
+            nn.init.kaiming_normal_(self.conv2.weight, nonlinearity='relu')
+            nn.init.constant_(self.conv2.bias, 0)
+        
+        if hasattr(self, 'conv3'):
+            nn.init.kaiming_normal_(self.conv3.weight, nonlinearity='relu')
+            nn.init.constant_(self.conv3.bias, 0)
+        
+        # Initialize fully connected layers with ReLU-specific initialization
+        nn.init.kaiming_normal_(self.fc1.weight, nonlinearity='relu')
+        nn.init.constant_(self.fc1.bias, 0)
+        
+        # Xavier/Glorot initialization for the output layer (no ReLU after)
+        nn.init.xavier_uniform_(self.fc2.weight)
+        nn.init.constant_(self.fc2.bias, 0)
     
     def forward(self, x):
         """
-        Forward pass through the network
+        Forward pass through the network.
+        
+        Processes input game frames through convolutional layers for feature extraction,
+        then through fully connected layers for Q-value prediction.
+        
         Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, frames, height, width, channels)
-
+            x (torch.Tensor): Batch of preprocessed game frames [B, C, H, W]
+            
         Returns:
-            torch.Tensor: Q-values for each action
-        
-        網絡的前向傳播方法，處理輸入數據並生成輸出。
-        參數:
-            x (torch.Tensor): 形狀為 (batch_size, frames, height, width, channels) 的輸入張量
-   
-        返回:
-            torch.Tensor: 每個動作的Q值
+            torch.Tensor: Q-values for each action [B, n_actions]
         """
-        # Reshape input for convolutional layers
-        # 將輸入數據重塑為卷積層所需的形狀
-        # batch_size是當前批次的大小，x.size(0)獲取批次大小
-        batch_size = x.size(0)
-        # 將輸入數據重塑為 (batch_size, frames * channels, height, width) 的形狀
-        x = x.view(batch_size, self.frames * self.channels, self.height, self.width)
+        # Ensure input is on the correct device
+        x = x.to(self.device)
         
-        # Apply convolutional layers with ReLU activation
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
+        # --- Feature Extraction ---
         
-        # 條件執行第三層卷積
-        if not self.use_two_conv_layers:
-            x = F.relu(self.conv3(x))
+        # First convolutional layer (always used) with ReLU
+        x = F.relu(self.bn1(self.conv1(x)))
         
-        # Flatten for fully connected layers
-        # 將卷積層的輸出展平為一維向量，以便輸入到全連接層
+        # Second convolutional layer (conditional) with ReLU
+        if hasattr(self, 'conv2'):
+            x = F.relu(self.bn2(self.conv2(x)))
+        
+        # Third convolutional layer (conditional) with ReLU
+        if hasattr(self, 'conv3'):
+            x = F.relu(self.bn3(self.conv3(x)))
+        
+        # Flatten the output of convolutional layers
         x = x.view(x.size(0), -1)
         
-        # Apply fully connected layers
-        # 應用第一個全連接層，然後使用ReLU激活函數
+        # --- Q-Value Estimation ---
+        
+        # First fully connected layer with ReLU
         x = F.relu(self.fc1(x))
-        # 應用輸出層，不使用激活函數，直接輸出Q值
+        
+        # Output layer (no activation - raw Q-values)
         q_values = self.fc2(x)
         
         return q_values
 
 
-def create_q_network(env):
+def create_q_network(input_shape, n_actions, device=None):
     """
-    Factory function to create a Q-Network based on the environment
+    Factory function to create a Q-network based on configuration.
+    
     Args:
-        env (gym.Env): Gymnasium environment
+        input_shape (tuple): Shape of input observations (C, H, W)
+        n_actions (int): Number of possible actions
+        device (torch.device, optional): Device to run on, auto-detected if None
+        
     Returns:
-        nn.Module: Q-Network instance
-    
-    創建Q網絡的工廠函數，根據環境參數自動配置網絡結構
-    參數:
-        env (gym.Env): Gymnasium環境
-    返回:
-        nn.Module: Q網絡實例
+        DQN: Initialized Q-network
     """
-    # Get observation shape and action count from environment
-    # 從環境中獲取觀察形狀和動作數量
-    obs_shape = env.observation_space.shape
-    num_actions = env.action_space.n
+    # Auto-detect device if not provided
+    if device is None:
+        device = utils.get_device()
+        
+    # Log device to be used
+    print(f"Creating Q-network on device: {device}")
     
-    # Determine input shape based on observation space
-    # 根據觀察空間確定輸入形狀
-    input_shape = (1,) + obs_shape  # Assuming single frame as default / 假設默認為單一幀
+    # Determine network depth based on config
+    use_one_layer = config.USE_ONE_CONV_LAYER
+    use_two_layers = config.USE_TWO_CONV_LAYERS
+    use_three_layers = config.USE_THREE_CONV_LAYERS
     
-    # Create and return the Q-Network
-    # 創建並返回Q網絡
-    return QNetwork(input_shape, num_actions)
+    # Apply priority rules for conflicting settings
+    if use_one_layer:
+        use_two_layers = False
+        use_three_layers = False
+    elif use_two_layers:
+        use_three_layers = False
+    # If none specified, default to three layers
+    elif not use_three_layers:
+        use_three_layers = True
+    
+    # Create network with specified depth
+    network = DQN(
+        input_shape=input_shape,
+        n_actions=n_actions,
+        device=device,
+        use_two_layers=use_two_layers,
+        use_three_layers=use_three_layers
+    )
+    
+    # Log network architecture
+    if use_three_layers:
+        print("Created 3-layer convolutional Q-network (deep)")
+    elif use_two_layers:
+        print("Created 2-layer convolutional Q-network (medium)")
+    else:
+        print("Created 1-layer convolutional Q-network (shallow)")
+    
+    # Enable cuDNN benchmarking for faster convolutions if using CUDA
+    if device.type == 'cuda':
+        torch.backends.cudnn.benchmark = True
+        
+    return network
 
 
-# Test code for this module - will only run when this file is executed directly
-# 測試代碼 - 只有當直接運行此文件時才會執行
+# Testing code for quick verification
 if __name__ == "__main__":
-    import env_wrappers
+    # Display system information
+    system_info = utils.get_system_info()
+    print(f"Testing Q-Network on {system_info['os']} with PyTorch {system_info['torch_version']}")
     
-    # Create environment
-    # 創建環境
-    env = env_wrappers.make_env()
-    print(f"Observation space: {env.observation_space}")
-    print(f"Action space: {env.action_space}")
+    # Get device (CPU/GPU)
+    device = utils.get_device()
+    print(f"Using device: {device}")
     
-    # Create Q-Network
-    # 創建Q網絡
-    q_net = create_q_network(env)
-    print(f"Q-Network architecture:\n{q_net}")
+    # Parameters from typical Atari preprocessing
+    input_channels = config.FRAME_STACK  # Typically 4 stacked frames
+    input_height = config.FRAME_HEIGHT   # Typically 84
+    input_width = config.FRAME_WIDTH     # Typically 84
+    n_actions = config.ACTION_SPACE_SIZE # 18 for Ice Hockey
     
-    # Test with a sample observation
-    # 使用樣本觀察進行測試
-    obs, _ = env.reset()
-    obs_tensor = torch.FloatTensor(obs).unsqueeze(0)  # Add batch dimension / 添加批次維度
-    q_values = q_net(obs_tensor)
+    # Test network creation
+    print("\nTesting network creation:")
     
-    print(f"Input shape: {obs_tensor.shape}")
-    print(f"Output Q-values: {q_values}")
-    print(f"Best action: {torch.argmax(q_values).item()}")
+    # Test with 1 convolutional layer
+    net1 = DQN(
+        input_shape=(input_channels, input_height, input_width),
+        n_actions=n_actions,
+        device=device,
+        use_two_layers=False,
+        use_three_layers=False
+    )
+    print("1-layer network created successfully")
     
-    env.close()
+    # Test with 2 convolutional layers
+    net2 = DQN(
+        input_shape=(input_channels, input_height, input_width),
+        n_actions=n_actions,
+        device=device,
+        use_two_layers=True,
+        use_three_layers=False
+    )
+    print("2-layer network created successfully")
+    
+    # Test with 3 convolutional layers
+    net3 = DQN(
+        input_shape=(input_channels, input_height, input_width),
+        n_actions=n_actions,
+        device=device,
+        use_two_layers=False,
+        use_three_layers=True
+    )
+    print("3-layer network created successfully")
+    
+    # Test default network creation through factory function
+    default_net = create_q_network(
+        input_shape=(input_channels, input_height, input_width),
+        n_actions=n_actions
+    )
+    print("Default network from factory function created successfully")
+    
+    # Test forward pass
+    print("\nTesting forward pass:")
+    batch_size = 32
+    test_input = torch.randn(batch_size, input_channels, input_height, input_width)
+    
+    # Test on CPU first to avoid potential GPU memory issues
+    with torch.no_grad():
+        test_input = test_input.to(device)
+        output = default_net(test_input)
+    
+    print(f"Input shape: {test_input.shape}")
+    print(f"Output shape: {output.shape}")
+    print(f"Output norm: {output.norm().item():.4f}")
+    print(f"Output range: [{output.min().item():.4f}, {output.max().item():.4f}]")
+    
+    # Measure single-batch inference time
+    import time
+    n_trials = 100
+    
+    start_time = time.time()
+    with torch.no_grad():
+        for _ in range(n_trials):
+            _ = default_net(test_input)
+    
+    # Calculate metrics
+    elapsed = time.time() - start_time
+    avg_time_ms = (elapsed / n_trials) * 1000
+    
+    # Memory usage info
+    if hasattr(torch.cuda, 'memory_allocated') and torch.cuda.is_available():
+        memory_mb = torch.cuda.memory_allocated() / (1024 * 1024)
+        print(f"\nGPU memory used: {memory_mb:.2f} MB")
+    
+    print(f"Avg. inference time: {avg_time_ms:.2f} ms per batch")
+    print(f"Total parameters: {sum(p.numel() for p in default_net.parameters()):,}")
+    print("\nQ-Network test completed successfully")
+
