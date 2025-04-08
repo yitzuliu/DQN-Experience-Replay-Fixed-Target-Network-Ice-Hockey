@@ -238,14 +238,19 @@ class DQNAgent:
         
         # Perform gradient descent step - PSEUDOCODE LINE 13 (continued)
         self.optimizer.zero_grad()  # Clear previous gradients
-        loss.backward()  # Compute gradients
+        
+        # Compute gradients
+        loss.backward()
+        
+        # Gradient accumulation: only update parameters after accumulating specified number of steps
+        # When GRADIENT_ACCUMULATION_STEPS=1, update occurs every time
+        # When GRADIENT_ACCUMULATION_STEPS>1, update occurs after accumulating gradients from multiple batches
+        if (self.steps_done % config.GRADIENT_ACCUMULATION_STEPS) == 0:
+            self.optimizer.step()  # Actually update network weights
+            self.optimizer.zero_grad()  # Reset gradients for next accumulation
         
         # Gradient clipping to prevent exploding gradients
         torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=10.0)
-        
-        # Accumulate gradients before optimizing if specified
-        if (self.steps_done % config.GRADIENT_ACCUMULATION_STEPS) == 0:
-            self.optimizer.step()  # Update network weights
         
         # Track loss for monitoring
         loss_value = loss.item()

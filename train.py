@@ -307,6 +307,16 @@ def train(device=None, render_training=False, output_dir=None):
                         ylabel="Loss",
                         save_path=os.path.join(viz_dir, "losses.png")
                     )
+        
+        # 每20個回合釋放一次GPU記憶體
+        if episode % 20 == 0 and device.type == 'cuda':
+            # 釋放GPU記憶體
+            torch.cuda.empty_cache()
+            # 只在debug模式下打印
+            if False:  # 設為True開啟記憶體使用報告
+                allocated = torch.cuda.memory_allocated() / 1e6
+                reserved = torch.cuda.memory_reserved() / 1e6
+                print(f"[Memory] Released GPU cache. Current usage: {allocated:.1f}MB allocated, {reserved:.1f}MB reserved")
     
     # ===== END OF TRAINING =====
     
@@ -430,7 +440,16 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\nTraining interrupted by user. Saving progress...")
         # Save current model on interrupt
-        if 'agent' in locals() and 'model_dir' in locals():
+        if 'agent' in locals():
+            # Ensure model_dir is defined
+            model_dir = locals().get('model_dir', './models')
+            os.makedirs(model_dir, exist_ok=True)
             interrupted_path = os.path.join(model_dir, "interrupted_model.pth")
-            agent.save_model(interrupted_path)
+            if 'agent' in locals():
+                if 'agent' in locals():
+                    agent.save_model(interrupted_path)
+                else:
+                    print("No agent instance found to save.")
+            else:
+                print("No agent instance found to save.")
             print(f"Interrupted model saved to {interrupted_path}")

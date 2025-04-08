@@ -58,7 +58,12 @@ DETAILED_LOG_FREQUENCY = 100  # Detailed logs every 50 episodes
 USE_ONE_CONV_LAYER = False
 USE_TWO_CONV_LAYERS = False
 USE_THREE_CONV_LAYERS = True  # Using full 3-layer architecture (hardware can handle it)
-GRADIENT_ACCUMULATION_STEPS = 1  # No need for gradient accumulation with large GPU
+
+# Gradient accumulation explanation
+# Gradient accumulation allows accumulating gradients over multiple small batches before updating the model
+# This is useful for memory-constrained situations, enabling the use of larger "virtual batch sizes"
+GRADIENT_ACCUMULATION_STEPS = 1  # Default is 1 (no accumulation); set >1 to enable gradient accumulation
+                                # Example: When set to 4, effective batch size = BATCH_SIZE * 4
 
 # Evaluation settings
 EVAL_EPISODES = 30  # More evaluation episodes for better statistics
@@ -77,7 +82,7 @@ MEMORY_IMPLEMENTATION = "optimized"  # Using memory-efficient implementation
 
 # GPU settings - leveraging the RTX 3090
 USE_GPU_PREPROCESSING = True  # Use GPU for frame preprocessing
-USE_MULTI_GPU = False  # Only one GPU available
+USE_MULTI_GPU = True  # Only one GPU available
 
 # Advanced features (disabled until implemented)
 PRIORITIZED_REPLAY = False  # Disabled until PrioritizedReplayMemory is implemented
