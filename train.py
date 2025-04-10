@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import pickle
 from datetime import datetime
+import json
 
 import env_wrappers
 from dqn_agent import DQNAgent
@@ -58,7 +59,7 @@ def create_replay_memory(memory_type, capacity, state_shape):
         return OptimizedArrayReplayMemory(capacity=capacity, state_shape=state_shape)
 
 
-def train(device=None, render_training=False, output_dir=None):
+def train(device=None, render_training=False, output_dir=None, enable_recovery=True):
     """
     Train a DQN agent on Atari Ice Hockey.
     
@@ -70,6 +71,7 @@ def train(device=None, render_training=False, output_dir=None):
         device (torch.device, optional): Device to use for training (auto-detected if None)
         render_training (bool): Whether to render training episodes (slower)
         output_dir (str, optional): Directory to save outputs (auto-generated if None)
+        enable_recovery (bool): Enable automatic error recovery and checkpointing
         
     Returns:
         tuple: (trained agent, training statistics)
@@ -81,22 +83,10 @@ def train(device=None, render_training=False, output_dir=None):
         device = utils.get_device()
     print(f"Training on device: {device}")
     
-    # Enable CUDA optimization if available
+    # Enable standard CUDA optimization if available
     if device.type == 'cuda':
-        # Benchmark mode can improve performance when input sizes don't change
         torch.backends.cudnn.benchmark = True
-        
-        # 啟用 TensorFloat32 加速（用於 RTX 30 系列及以上）
-        if torch.cuda.get_device_capability(0)[0] >= 8:
-            # 對於 RTX 30 系列（Ampere）以上的 GPU
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
-            print("Enabled TensorFloat32 precision for faster computation")
-        
-        # Set memory allocation strategy for better GPU memory management
         torch.cuda.empty_cache()
-        if hasattr(torch.cuda, 'memory_stats'):
-            print(f"Initial GPU memory allocated: {torch.cuda.memory_allocated() / 1e6:.2f} MB")
     
     # 2. Setup result directories
     if output_dir is None:
@@ -169,6 +159,19 @@ def train(device=None, render_training=False, output_dir=None):
         "start_time": time.time()     # Track training duration
     }
     
+    # Ensure we save checkpoints more frequently for long training runs
+    checkpoint_interval = min(50, config.SAVE_FREQUENCY)
+    recovery_checkpoint_path = None
+    
+    # Initialize recovery information
+    if enable_recovery:
+        recovery_info = {
+            "last_episode": 0,
+            "last_step": 0,
+            "last_checkpoint": None
+        }
+        recovery_info_path = os.path.join(log_dir, "recovery_info.json") if output_dir else None
+    
     # ===== TRAINING LOOP =====
     
     # 8. Training loop - PSEUDOCODE LINE 4: For each episode = 1 to M
@@ -182,234 +185,221 @@ def train(device=None, render_training=False, output_dir=None):
     # Use tqdm for progress bar
     episode_iterator = tqdm(range(1, config.TRAINING_EPISODES + 1), desc="Training Progress", 
                            disable=True)  # Disable tqdm progress bar
-    for episode in episode_iterator:
-        episode_start_time = time.time()
-        episode_reward = 0
-        episode_length = 0
-        episode_loss = []
-        
-        # Reset environment - PSEUDOCODE LINE 5: Initialize initial state S₁
-        state, _ = env.reset()
-        
-        # Episode loop - PSEUDOCODE LINE 6: For t = 1 to T
-        done = False
-        while not done:
-            # Select action using epsilon-greedy - PSEUDOCODE LINES 7-8
-            action = agent.select_action(state)
+    try:
+        for episode in episode_iterator:
+            episode_start_time = time.time()
+            episode_reward = 0
+            episode_length = 0
+            episode_loss = []
             
-            # Execute action in environment - PSEUDOCODE LINE 9
-            next_state, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
+            # Reset environment - PSEUDOCODE LINE 5: Initialize initial state S₁
+            state, _ = env.reset()
             
-            # Store transition in replay memory - PSEUDOCODE LINE 10
-            agent.store_transition(state, action, reward, next_state, done)
-            
-            # Update statistics
-            episode_reward += reward
-            episode_length += 1
-            step_count += 1
-            
-            # Learn from experiences when memory has enough samples - PSEUDOCODE LINES 11-13
-            try:
-                if step_count > config.LEARNING_STARTS and step_count % (config.UPDATE_FREQUENCY * 2) == 0:
-                    # 每次學習進行兩次優化步驟，減少 CPU-GPU 同步次數
-                    for _ in range(2):
+            # Episode loop - PSEUDOCODE LINE 6: For t = 1 to T
+            done = False
+            while not done:
+                # Select action using epsilon-greedy - PSEUDOCODE LINES 7-8
+                action = agent.select_action(state)
+                
+                # Execute action in environment - PSEUDOCODE LINE 9
+                next_state, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+                
+                # Store transition in replay memory - PSEUDOCODE LINE 10
+                agent.store_transition(state, action, reward, next_state, done)
+                
+                # Update statistics
+                episode_reward += reward
+                episode_length += 1
+                step_count += 1
+                
+                # Learn from experiences when memory has enough samples - PSEUDOCODE LINES 11-13
+                try:
+                    if step_count > config.LEARNING_STARTS and step_count % config.UPDATE_FREQUENCY == 0:
                         loss = agent.learn()
                         if loss is not None:
                             episode_loss.append(loss)
-            except KeyboardInterrupt:
-                # Handle keyboard interrupt by breaking the episode loop
-                print("\nTraining step interrupted by user. Preparing for safe shutdown...")
-                done = True  # Force episode to end
+                except KeyboardInterrupt:
+                    # Handle keyboard interrupt by breaking the episode loop
+                    print("\nTraining step interrupted by user. Preparing for safe shutdown...")
+                    done = True  # Force episode to end
+                
+                # Update target network periodically - PSEUDOCODE LINE 14
+                if step_count % config.TARGET_UPDATE_FREQUENCY == 0:
+                    agent.update_target_network()
+                    
+                # Move to next state
+                state = next_state
             
-            # Update target network periodically - PSEUDOCODE LINE 14
-            if step_count % config.TARGET_UPDATE_FREQUENCY == 0:
-                agent.update_target_network()
-                
-                # Further reduce print frequency, from every 10 times to every 20 times or lower
-                if False:  # Disable target network update messages
-                    print(f"Step {step_count}: Updated target network")
+            # End of episode processing
+            episode_duration = time.time() - episode_start_time
+            avg_loss = np.mean(episode_loss) if episode_loss else 0
             
-            # Move to next state
-            state = next_state
-        
-        # End of episode processing
-        episode_duration = time.time() - episode_start_time
-        avg_loss = np.mean(episode_loss) if episode_loss else 0
-        
-        # Track statistics
-        stats["episode_rewards"].append(episode_reward)
-        stats["episode_lengths"].append(episode_length)
-        stats["episode_losses"].append(avg_loss)
-        stats["epsilons"].append(agent.epsilon)
-        
-        # Get Q-values (last 1000 only to save memory)
-        if agent.avg_q_values:
-            avg_q = np.mean(agent.avg_q_values[-1000:])
-            stats["episode_q_values"].append(avg_q)
-        
-        # Update progress bar description (disabled now)
-        # episode_iterator.set_description(
-        #     f"Ep {episode}: Reward={episode_reward:.1f}, Loss={avg_loss:.4f}, ε={agent.epsilon:.2f}"
-        # )
-        
-        # Print only the episode summary line, no other details
-        print(f"Episode {episode}/{config.TRAINING_EPISODES} - "
-              f"Total Steps: {step_count}, Reward: {episode_reward:.2f}, "
-              f"Loss: {avg_loss:.6f}, Epsilon: {agent.epsilon:.4f}, "
-              f"Time: {episode_duration:.2f}s")
-        
-        # Comment out or remove all other print statements
-        # if episode % 10 == 0:
-        #     print(f"\nEpisode {episode}/{config.TRAINING_EPISODES} - "
-        #           f"Reward: {episode_reward:.2f}, Length: {episode_length}, "
-        #           f"Loss: {avg_loss:.6f}, Epsilon: {agent.epsilon:.4f}, "
-        #           f"Time: {episode_duration:.2f}s")
-        #     print(f"Memory size: {len(agent.memory)}/{config.MEMORY_CAPACITY}, Learning threshold: {config.LEARNING_STARTS}")
-        #     print(f"Steps done: {agent.steps_done}, Updates performed: {max(0, (agent.steps_done - config.LEARNING_STARTS) // config.UPDATE_FREQUENCY)}")
-        #     
-        #     # Display recent losses if available
-        #     if len(agent.losses) > 0:
-        #         recent_losses = agent.losses[-10:]  # Last 10 loss values
-        #         print(f"Recent losses: {[f'{l:.6f}' for l in recent_losses]}")
-        #     
-        #     # Display GPU memory usage if available
-        #     if device.type == 'cuda' and hasattr(torch.cuda, 'memory_allocated'):
-        #         allocated = torch.cuda.memory_allocated() / 1e6
-        #         reserved = torch.cuda.memory_reserved() / 1e6
-        #         print(f"GPU Memory: {allocated:.1f}MB allocated, {reserved:.1f}MB reserved")
-        
-        # Modify the best model message to be more minimal
-        if episode_reward > best_reward:
-            best_reward = episode_reward
-            agent.save_model(os.path.join(model_dir, "best_model.pth"))
-            # print(f"Saved new best model with reward {best_reward:.2f}")  # Comment out this line
-        
-        # Periodically save checkpoint and visualize progress
-        if episode % config.SAVE_FREQUENCY == 0:
-            try:
-                # Save model checkpoint
-                checkpoint_path = os.path.join(model_dir, f"model_ep{episode}.pth")
-                if agent.save_model(checkpoint_path):
-                    print(f"Model checkpoint saved to {checkpoint_path}")
+            # Track statistics
+            stats["episode_rewards"].append(episode_reward)
+            stats["episode_lengths"].append(episode_length)
+            stats["episode_losses"].append(avg_loss)
+            stats["epsilons"].append(agent.epsilon)
+            
+            # Get Q-values (last 1000 only to save memory)
+            if agent.avg_q_values:
+                avg_q = np.mean(agent.avg_q_values[-1000:])
+                stats["episode_q_values"].append(avg_q)
+            
+            print(f"Episode {episode}/{config.TRAINING_EPISODES} - "
+                  f"Total Steps: {step_count}, Reward: {episode_reward:.2f}, "
+                  f"Loss: {avg_loss:.6f}, Epsilon: {agent.epsilon:.4f}, "
+                  f"Time: {episode_duration:.2f}s")
+            
+            # Modify the best model message to be more minimal
+            if episode_reward > best_reward:
+                best_reward = episode_reward
+                agent.save_model(os.path.join(model_dir, "best_model.pth"))
+            
+            # Additional auto-recovery checkpoints every 50 episodes
+            if enable_recovery and episode % checkpoint_interval == 0:
+                recovery_checkpoint_path = os.path.join(model_dir, f"recovery_checkpoint.pth")
+                agent.save_model(recovery_checkpoint_path)
                 
-                # Save statistics (using pickle for efficiency)
-                stats_file = os.path.join(log_dir, "training_stats.pkl")
-                if utils.save_object(stats, stats_file):
-                    print(f"Training stats saved to {stats_file}")
-                
-                # Also save as JSON for easier inspection
+                # Update recovery info
+                if recovery_info_path:
+                    recovery_info["last_episode"] = episode
+                    recovery_info["last_step"] = step_count
+                    recovery_info["last_checkpoint"] = recovery_checkpoint_path
+                    with open(recovery_info_path, 'w') as f:
+                        json.dump(recovery_info, f)
+            
+            # Periodically clean GPU memory if using CUDA
+            if device.type == 'cuda' and episode % 100 == 0:
+                torch.cuda.empty_cache()
+            
+            # Periodically save checkpoint and visualize progress
+            if episode % config.SAVE_FREQUENCY == 0:
                 try:
-                    import json
-                    # Convert numpy arrays to lists for JSON serialization
-                    json_stats = {}
-                    for key, value in stats.items():
-                        if isinstance(value, list) and len(value) > 0:
-                            # If list contains numpy values, convert them
-                            if hasattr(value[0], 'item'):
-                                json_stats[key] = [float(x) for x in value]
+                    # Save model checkpoint
+                    checkpoint_path = os.path.join(model_dir, f"model_ep{episode}.pth")
+                    if agent.save_model(checkpoint_path):
+                        print(f"Model checkpoint saved to {checkpoint_path}")
+                    
+                    # Save statistics (using pickle for efficiency)
+                    stats_file = os.path.join(log_dir, "training_stats.pkl")
+                    if utils.save_object(stats, stats_file):
+                        print(f"Training stats saved to {stats_file}")
+                    
+                    # Also save as JSON for easier inspection
+                    try:
+                        # Convert numpy arrays to lists for JSON serialization
+                        json_stats = {}
+                        for key, value in stats.items():
+                            if isinstance(value, list) and len(value) > 0:
+                                # If list contains numpy values, convert them
+                                if hasattr(value[0], 'item'):
+                                    json_stats[key] = [float(x) for x in value]
+                                else:
+                                    json_stats[key] = value
+                            elif hasattr(value, 'item'):
+                                json_stats[key] = float(value)
                             else:
                                 json_stats[key] = value
-                        elif hasattr(value, 'item'):
-                            json_stats[key] = float(value)
-                        else:
-                            json_stats[key] = value
-                    
-                    # Save only most recent values to keep file size manageable
-                    for key in ['episode_rewards', 'episode_lengths', 'episode_losses', 'episode_q_values', 'epsilons']:
-                        if key in json_stats and len(json_stats[key]) > 1000:
-                            json_stats[key + "_recent"] = json_stats[key][-1000:]
-                            
-                    json_file = os.path.join(log_dir, "training_stats.json")
-                    with open(json_file, 'w') as f:
-                        json.dump(json_stats, f, indent=2)
-                except Exception as e:
-                    print(f"Warning: Could not save stats as JSON: {e}")
-                
-                # Update plots
-                if len(stats["episode_rewards"]) > 0:
-                    try:
-                        # Plot rewards
-                        utils.plot_learning_curve(
-                            values=stats["episode_rewards"],
-                            window_size=100,
-                            title=f"Episode Rewards (Episode {episode})",
-                            xlabel="Episode",
-                            ylabel="Reward",
-                            save_path=os.path.join(viz_dir, "rewards.png")
-                        )
                         
-                        # Plot losses if any
-                        if any(stats["episode_losses"]):
+                        # Save only most recent values to keep file size manageable
+                        for key in ['episode_rewards', 'episode_lengths', 'episode_losses', 'episode_q_values', 'epsilons']:
+                            if key in json_stats and len(json_stats[key]) > 1000:
+                                json_stats[key + "_recent"] = json_stats[key][-1000:]
+                                
+                        json_file = os.path.join(log_dir, "training_stats.json")
+                        with open(json_file, 'w') as f:
+                            json.dump(json_stats, f, indent=2)
+                    except Exception as e:
+                        print(f"Warning: Could not save stats as JSON: {e}")
+                    
+                    # Update plots
+                    if len(stats["episode_rewards"]) > 0:
+                        try:
+                            # Plot rewards
                             utils.plot_learning_curve(
-                                values=stats["episode_losses"],
+                                values=stats["episode_rewards"],
                                 window_size=100,
-                                title=f"Training Loss (Episode {episode})",
+                                title=f"Episode Rewards (Episode {episode})",
                                 xlabel="Episode",
-                                ylabel="Loss",
-                                save_path=os.path.join(viz_dir, "losses.png")
+                                ylabel="Reward",
+                                save_path=os.path.join(viz_dir, "rewards.png")
                             )
                             
-                        # Generate combined plots
-                        utils.plot_episode_stats(stats, save_dir=viz_dir, show=False)
-                        print(f"Plots updated in {viz_dir}")
-                    except Exception as e:
-                        print(f"Warning: Error generating plots: {e}")
-            except Exception as e:
-                print(f"Warning: Error during periodic saving at episode {episode}: {e}")
-        
-        # Periodically clear GPU memory cache to prevent memory fragmentation
-        if episode % 20 == 0 and device.type == 'cuda':
-            # Release GPU memory
-            torch.cuda.empty_cache()
-            # Only print in debug mode
-            if False:  # Set to True to enable memory usage reporting
-                allocated = torch.cuda.memory_allocated() / 1e6
-                reserved = torch.cuda.memory_reserved() / 1e6
-                print(f"[Memory] Released GPU cache. Current usage: {allocated:.1f}MB allocated, {reserved:.1f}MB reserved")
-    
-    # ===== END OF TRAINING =====
-    
-    # Calculate and report training metrics
-    total_time = time.time() - total_time_start
-    hours, remainder = divmod(total_time, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    print(f"Training completed in {int(hours)}h {int(minutes)}m {seconds:.2f}s")
-    
-    # Save final model
-    final_model_path = os.path.join(model_dir, "final_model.pth")
-    agent.save_model(final_model_path)
-    print(f"Final model saved to {final_model_path}")
-    
-    # Save final statistics with error handling
-    try:
-        final_stats_path = os.path.join(log_dir, "final_stats.pkl")
-        if utils.save_object(stats, final_stats_path):
-            print(f"Final statistics saved to {final_stats_path}")
-            
-        # Generate final visualizations with error handling
-        try:
-            utils.plot_episode_stats(stats, save_dir=viz_dir, show=False)
-            print(f"Final plots saved to {viz_dir}")
-        except Exception as e:
-            print(f"Warning: Could not generate final plots: {e}")
+                            # Plot losses if any
+                            if any(stats["episode_losses"]):
+                                utils.plot_learning_curve(
+                                    values=stats["episode_losses"],
+                                    window_size=100,
+                                    title=f"Training Loss (Episode {episode})",
+                                    xlabel="Episode",
+                                    ylabel="Loss",
+                                    save_path=os.path.join(viz_dir, "losses.png")
+                                )
+                                
+                            # Generate combined plots
+                            utils.plot_episode_stats(stats, save_dir=viz_dir, show=False)
+                            print(f"Plots updated in {viz_dir}")
+                        except Exception as e:
+                            print(f"Warning: Error generating plots: {e}")
+                except Exception as e:
+                    print(f"Warning: Error during periodic saving at episode {episode}: {e}")
+    except KeyboardInterrupt:
+        print("\nTraining interrupted by user. Saving progress...")
+        # Save current model on interrupt
+        if 'agent' in locals():
+            interrupted_path = os.path.join(model_dir, "interrupted_model.pth")
+            agent.save_model(interrupted_path)
+            print(f"Interrupted model saved to {interrupted_path}")
     except Exception as e:
-        print(f"Warning: Error saving final statistics: {e}")
-    
-    # Clean up resources
-    env.close()
-    
-    # Free GPU memory if available
-    if device.type == 'cuda':
+        print(f"\nUnexpected error during training: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Check recovery training functionality
+        if enable_recovery and recovery_checkpoint_path and os.path.exists(recovery_checkpoint_path):
+            print(f"\nTraining can be resumed from: {recovery_checkpoint_path}")
+    finally:
+        # Calculate and report training metrics
+        total_time = time.time() - total_time_start
+        hours, remainder = divmod(total_time, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        print(f"Training completed in {int(hours)}h {int(minutes)}m {seconds:.2f}s")
+        
+        # Save final model
+        final_model_path = os.path.join(model_dir, "final_model.pth")
+        agent.save_model(final_model_path)
+        print(f"Final model saved to {final_model_path}")
+        
+        # Save final statistics with error handling
         try:
-            torch.cuda.empty_cache()
-            print("GPU memory cleared")
+            final_stats_path = os.path.join(log_dir, "final_stats.pkl")
+            if utils.save_object(stats, final_stats_path):
+                print(f"Final statistics saved to {final_stats_path}")
+                
+            # Generate final visualizations with error handling
+            try:
+                utils.plot_episode_stats(stats, save_dir=viz_dir, show=False)
+                print(f"Final plots saved to {viz_dir}")
+            except Exception as e:
+                print(f"Warning: Could not generate final plots: {e}")
         except Exception as e:
-            print(f"Warning: Could not clear GPU memory: {e}")
-    
-    print(f"Training completed. To evaluate the trained models, use:")
-    print(f"  python evaluate.py evaluate {final_model_path} --render")
-    print(f"  python evaluate.py evaluate {os.path.join(model_dir, 'best_model.pth')} --render")
+            print(f"Warning: Error saving final statistics: {e}")
+        
+        # Clean up resources
+        env.close()
+        
+        # Free GPU memory if available
+        if device.type == 'cuda':
+            try:
+                torch.cuda.empty_cache()
+                print("GPU memory cleared")
+            except Exception as e:
+                print(f"Warning: Could not clear GPU memory: {e}")
+        
+        print(f"Training completed. To evaluate the trained models, use:")
+        print(f"  python evaluate.py evaluate {final_model_path} --render")
+        print(f"  python evaluate.py evaluate {os.path.join(model_dir, 'best_model.pth')} --render")
     
     return agent, stats
 
@@ -426,6 +416,7 @@ if __name__ == "__main__":
     parser.add_argument("--episodes", type=int, default=config.TRAINING_EPISODES, help="Number of episodes to train")
     parser.add_argument("--learning_starts", type=int, default=config.LEARNING_STARTS, 
                        help="Steps before starting learning")
+    parser.add_argument("--enable_recovery", action="store_true", help="Enable automatic recovery mechanism")
     args = parser.parse_args()
     
     # Override config if specified through command line
@@ -476,7 +467,8 @@ if __name__ == "__main__":
         trained_agent, training_stats = train(
             device=device,
             render_training=args.render,
-            output_dir=args.output_dir
+            output_dir=args.output_dir,
+            enable_recovery=args.enable_recovery
         )
         
         print("Training complete!")

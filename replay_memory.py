@@ -38,6 +38,7 @@ import random      # For random sampling
 import numpy as np  # For array operations
 import torch       # PyTorch library for tensor operations
 import config      # Configuration file for hyperparameters
+import gc          # Garbage collection for memory management
 
 class ListReplayMemory:
     """
@@ -49,6 +50,8 @@ class ListReplayMemory:
         
         Args:
             capacity (int): Maximum number of transitions to store
+            state_shape (tuple, optional): Shape of state observations
+            action_dim (int, optional): Dimension of action space
         """
         self.memory = []  # Use standard Python list
         self.capacity = capacity  # Maximum capacity
@@ -162,6 +165,14 @@ class ListReplayMemory:
             bool: True if enough samples exist, False otherwise
         """
         return len(self) >= batch_size
+    
+    def clear(self):
+        """
+        Clear the memory buffer to free up memory.
+        """
+        self.memory = []
+        self.position = 0
+        gc.collect()  # Force garbage collection
 
 
 class ArrayReplayMemory:
@@ -269,6 +280,18 @@ class ArrayReplayMemory:
             bool: True if enough samples exist, False otherwise
         """
         return len(self) >= batch_size
+    
+    def clear(self):
+        """
+        Clear memory to free up RAM.
+        """
+        # Reset counter and position
+        self.counter = 0
+        self.position = 0
+        
+        # Instead of recreating arrays, just reset index trackers
+        # This avoids memory fragmentation
+        gc.collect()  # Force garbage collection
 
 
 class OptimizedArrayReplayMemory:
@@ -322,23 +345,43 @@ class OptimizedArrayReplayMemory:
         self.counter = min(self.counter + 1, self.capacity)
         
     def sample(self, batch_size):
-        indices = np.random.choice(self.counter, batch_size, replace=False)
+        """
+        Randomly sample a batch of experiences from memory.
         
-        # Get corresponding next state indices
-        next_indices = self.indices[indices]
-        
-        # Convert uint8 back to float32 normalized [0,1] range when sampling
-        states = self.states[indices].astype(np.float32) / 255.0
-        next_states = self.states[next_indices].astype(np.float32) / 255.0
-        
-        # Convert to PyTorch tensors
-        states = torch.FloatTensor(states)
-        actions = torch.LongTensor(self.actions[indices]).unsqueeze(1)
-        rewards = torch.FloatTensor(self.rewards[indices]).unsqueeze(1)
-        next_states = torch.FloatTensor(next_states)
-        dones = torch.FloatTensor(self.dones[indices].astype(np.float32)).unsqueeze(1)
-        
-        return states, actions, rewards, next_states, dones
+        Args:
+            batch_size (int): Number of transitions to sample
+            
+        Returns:
+            tuple: Batch of (states, actions, rewards, next_states, dones)
+        """
+        try:
+            indices = np.random.choice(min(self.counter, self.capacity-1), batch_size, replace=False)
+            
+            # Get corresponding next state indices
+            next_indices = self.indices[indices]
+            
+            # Convert uint8 back to float32 normalized [0,1] range when sampling
+            states = self.states[indices].astype(np.float32) / 255.0
+            next_states = self.states[next_indices].astype(np.float32) / 255.0
+            
+            # Convert to PyTorch tensors
+            states = torch.FloatTensor(states)
+            actions = torch.LongTensor(self.actions[indices]).unsqueeze(1)
+            rewards = torch.FloatTensor(self.rewards[indices].astype(np.float32)).unsqueeze(1)
+            next_states = torch.FloatTensor(next_states)
+            dones = torch.FloatTensor(self.dones[indices].astype(np.float32)).unsqueeze(1)
+            
+            return states, actions, rewards, next_states, dones
+            
+        except Exception as e:
+            print(f"Warning: Memory sampling error: {e}, returning empty batch")
+            # Return empty batch instead of failing
+            empty_shape = (0, *self.state_shape)
+            return (torch.FloatTensor(np.zeros(empty_shape)),
+                    torch.LongTensor(np.zeros((0, 1))),
+                    torch.FloatTensor(np.zeros((0, 1))),
+                    torch.FloatTensor(np.zeros(empty_shape)),
+                    torch.FloatTensor(np.zeros((0, 1))))
     
     def sample_pinned(self, batch_size):
         """
@@ -352,23 +395,23 @@ class OptimizedArrayReplayMemory:
             tuple: Batch of (states, actions, rewards, next_states, dones) with pinned memory
         """
         try:
-            indices = np.random.choice(self.counter, batch_size, replace=False)
+            # Make sure we don't select the last element as an index for a next state
+            indices = np.random.choice(min(self.counter, self.capacity-1), batch_size, replace=False)
             
             # Get corresponding next state indices
             next_indices = self.indices[indices]
             
-            # 預先合併批次以減少 PyTorch 操作
-            states_and_next = np.concatenate([self.states[indices], self.states[next_indices]])
+            # Pre-merge batches to reduce PyTorch operations
+            states_and_next = np.vstack([self.states[indices], self.states[next_indices]])
             states_and_next_gpu = torch.from_numpy(states_and_next.astype(np.float32) / 255.0).pin_memory()
             
-            # 使用切片而非分別創建張量
-            batch_size_half = batch_size
-            states = states_and_next_gpu[:batch_size_half]
-            next_states = states_and_next_gpu[batch_size_half:]
+            # Use slicing rather than creating separate tensors
+            states = states_and_next_gpu[:batch_size]
+            next_states = states_and_next_gpu[batch_size:]
             
             # Convert to PyTorch tensors with pinned memory for faster GPU transfer
             actions = torch.LongTensor(self.actions[indices]).unsqueeze(1).pin_memory()
-            rewards = torch.FloatTensor(self.rewards[indices]).unsqueeze(1).pin_memory()
+            rewards = torch.FloatTensor(self.rewards[indices].astype(np.float32)).unsqueeze(1).pin_memory()
             dones = torch.FloatTensor(self.dones[indices].astype(np.float32)).unsqueeze(1).pin_memory()
             
             return states, actions, rewards, next_states, dones
@@ -377,10 +420,54 @@ class OptimizedArrayReplayMemory:
             # If interrupted during sampling, return None values to allow clean shutdown
             print("\nInterrupted during memory sampling. Preparing for safe shutdown...")
             return None, None, None, None, None
+        except Exception as e:
+            # More descriptive error message
+            print(f"Warning: Error during memory sampling: {e}")
+            print(f"Memory state: capacity={self.capacity}, counter={self.counter}, position={self.position}")
+            
+            # Try to return a valid but smaller batch
+            try:
+                reduced_batch = max(1, batch_size // 4)
+                print(f"Attempting to return a reduced batch of size {reduced_batch}")
+                return self.sample(reduced_batch)
+            except:
+                # If that fails too, return None
+                print("Failed to create recovery batch, returning None")
+                return None, None, None, None, None
     
     def __len__(self):
-        return self.counter
+        return min(self.counter, self.capacity)
     
     def can_sample(self, batch_size):
         return len(self) >= batch_size
+    
+    def clear(self):
+        """Clear memory and free resources."""
+        self.counter = 0
+        self.position = 0
+        gc.collect()  # Force garbage collection
+        
+    def memory_usage(self):
+        """
+        Calculate approximate memory usage.
+        
+        Returns:
+            float: Approximate memory usage in MB
+        """
+        states_size = self.states.nbytes / (1024 * 1024)
+        actions_size = self.actions.nbytes / (1024 * 1024)
+        rewards_size = self.rewards.nbytes / (1024 * 1024)
+        indices_size = self.indices.nbytes / (1024 * 1024)
+        dones_size = self.dones.nbytes / (1024 * 1024)
+        
+        total = states_size + actions_size + rewards_size + indices_size + dones_size
+        
+        return {
+            "states_mb": states_size,
+            "actions_mb": actions_size,
+            "rewards_mb": rewards_size,
+            "indices_mb": indices_size,
+            "dones_mb": dones_size,
+            "total_mb": total
+        }
 

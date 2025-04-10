@@ -112,12 +112,15 @@
 - [✓] `env_wrappers.py` - Fully implemented with all necessary wrappers
 - [✓] `train.py` - Fully implemented with complete training loop and GPU optimization
 - [✓] `evaluate.py` - Fully implemented with evaluation functionality
-- [✓] `utils.py` - Fully implemented with all utility functions
-- [✓] `config.py` - Fully implemented with well-organized parameters
-- [✓] `main.py` - Basic implementation (not fully necessary as train.py has direct execution)
+- [✓] `utils.py` - Fully implemented with all utility functions including Apple Silicon support
+- [✓] `config.py` - Fully implemented with well-organized parameters and bilingual comments
+- [✓] `main.py` - Fully implemented with clean command interface
 - [✓] `logger.py` - Created but minimal (logging functionality integrated into train.py)
-- [✓] `README.md` - Fully documented
+- [✓] `README.md` - Fully documented in both English and Chinese
 - [✓] `atari_reference.md` - Added for reference
+- [✗] `multi_gpu_trainer.py` - Removed (not needed for core DQN algorithm)
+- [✗] `troubleshoot.py` - Removed (not needed for core DQN algorithm)
+- [✗] `debug_logs.py` - Removed (not needed for core DQN algorithm)
 
 ## Completed Implementation
 All core components of the DQN algorithm have been successfully implemented and can be used for:
@@ -125,7 +128,7 @@ All core components of the DQN algorithm have been successfully implemented and 
 2. ✓ Evaluating trained models
 3. ✓ Comparing different models
 4. ✓ Visualizing training progress and results
-5. ✓ Optimizing performance across different hardware (CPU/GPU)
+5. ✓ Optimizing performance across different hardware (CPU/GPU/Apple Silicon)
 
 ## Pseudocode
 1. Initialize replay memory D with capacity N

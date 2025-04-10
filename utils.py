@@ -3,22 +3,117 @@ import matplotlib.pyplot as plt
 import os
 import pickle
 import torch
+import platform  # For detecting operating system
 import time
+import gc  # Garbage collection for memory management
 
 def get_device():
     """
     Determine if GPU is available and return appropriate device.
+    This function checks for NVIDIA GPU (CUDA), Apple Silicon GPU (MPS),
+    or defaults to CPU if no GPU is available.
     
     Returns:
         torch.device: CPU or GPU device for tensor operations
     """
+    # Check for NVIDIA GPU (CUDA)
     if torch.cuda.is_available():
-        device = torch.device("cuda")
-        print(f"Using GPU: {torch.cuda.get_device_name(0)}")
-        return device
+        try:
+            # Test CUDA availability with a small tensor operation
+            test_tensor = torch.tensor([1.0, 2.0], device='cuda')
+            test_result = test_tensor + test_tensor
+            device = torch.device("cuda")
+            print(f"Using NVIDIA GPU: {torch.cuda.get_device_name(0)}")
+            # Free memory after test
+            del test_tensor
+            del test_result
+            torch.cuda.empty_cache()
+            return device
+        except Exception as e:
+            print(f"CUDA reported as available but encountered error: {e}")
+            print("Falling back to CPU")
+            return torch.device("cpu")
+    
+    # Check for Apple Silicon (M1/M2/M3) with MPS acceleration
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        try:
+            # Test MPS availability with a small tensor operation
+            test_tensor = torch.tensor([1.0, 2.0], device='mps')
+            test_result = test_tensor + test_tensor
+            device = torch.device("mps")
+            print("Using Apple Silicon GPU (M1/M2/M3)")
+            # Free memory after test
+            del test_tensor
+            del test_result
+            return device
+        except Exception as e:
+            print(f"MPS reported as available but encountered error: {e}")
+            print("Falling back to CPU")
+            return torch.device("cpu")
+    
+    # If no GPU is detected, use CPU
     else:
-        print("GPU not available, using CPU")
+        print("No GPU detected, using CPU")
         return torch.device("cpu")
+
+def get_system_info():
+    """
+    Get system information for logging and optimization.
+    
+    Returns:
+        dict: Dictionary with system information
+    """
+    info = {
+        "os": platform.system(),
+        "os_version": platform.version(),
+        "python_version": platform.python_version(),
+        "torch_version": torch.__version__,
+        "cuda_available": torch.cuda.is_available(),
+    }
+    
+    # CPU information
+    info["cpu_count"] = os.cpu_count()
+    info["cpu_type"] = platform.processor() or platform.machine()
+    
+    # NVIDIA GPU information
+    if torch.cuda.is_available():
+        info["gpu_name"] = torch.cuda.get_device_name(0)
+        info["gpu_count"] = torch.cuda.device_count()
+        info["cuda_version"] = torch.version.cuda
+        
+        # GPU memory information
+        if hasattr(torch.cuda, 'get_device_properties'):
+            total_memory = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)  # Convert to GB
+            info["gpu_memory_gb"] = f"{total_memory:.2f}"
+    
+    # Apple Silicon (MPS) information
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        info["mps_available"] = True
+        # Check if it's Apple Silicon (arm architecture)
+        if platform.machine().startswith('arm'):
+            info["apple_silicon"] = True
+            info["gpu_type"] = "Apple Silicon"
+            # Try to detect model (M1/M2/M3)
+            try:
+                import subprocess
+                result = subprocess.check_output(['sysctl', '-n', 'machdep.cpu.brand_string']).decode('utf-8').strip()
+                if "Apple" in result:
+                    info["apple_chip"] = result
+            except:
+                pass
+    
+    # Memory information
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        info["total_memory_gb"] = f"{vm.total / (1024**3):.2f}"
+        info["available_memory_gb"] = f"{vm.available / (1024**3):.2f}"
+        info["memory_percent_used"] = f"{vm.percent:.1f}"
+    except ImportError:
+        # psutil not installed, provide basic info
+        info["memory_info_available"] = False
+    
+    return info
 
 def create_directories(base_dir="./results"):
     """
@@ -38,19 +133,66 @@ def create_directories(base_dir="./results"):
     model_dir = os.path.join(run_dir, "models")
     log_dir = os.path.join(run_dir, "logs")
     viz_dir = os.path.join(run_dir, "visualizations")
+    checkpoint_dir = os.path.join(run_dir, "checkpoints")
     
     # Ensure directories exist
-    for directory in [run_dir, model_dir, log_dir, viz_dir]:
+    for directory in [run_dir, model_dir, log_dir, viz_dir, checkpoint_dir]:
         os.makedirs(directory, exist_ok=True)
     
     paths = {
         "run": run_dir,
         "models": model_dir,
         "logs": log_dir,
-        "viz": viz_dir
+        "viz": viz_dir,
+        "checkpoints": checkpoint_dir
     }
     
     return paths
+
+def clean_memory():
+    """
+    Clean up memory to prevent memory leaks during long training runs.
+    """
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+def memory_stats():
+    """
+    Get current memory usage statistics.
+    
+    Returns:
+        dict: Dictionary with memory statistics
+    """
+    stats = {}
+    
+    try:
+        import psutil
+        # System memory
+        vm = psutil.virtual_memory()
+        stats["system_total_gb"] = vm.total / (1024**3)
+        stats["system_available_gb"] = vm.available / (1024**3)
+        stats["system_used_percent"] = vm.percent
+        
+        # Process memory
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        stats["process_rss_mb"] = mem_info.rss / (1024**2)  # Resident Set Size
+        stats["process_vms_mb"] = mem_info.vms / (1024**2)  # Virtual Memory Size
+        
+    except ImportError:
+        stats["error"] = "psutil not available"
+    
+    # GPU memory if available
+    if torch.cuda.is_available():
+        try:
+            stats["gpu_allocated_mb"] = torch.cuda.memory_allocated() / (1024**2)
+            stats["gpu_cached_mb"] = torch.cuda.memory_reserved() / (1024**2)
+            stats["gpu_max_allocated_mb"] = torch.cuda.max_memory_allocated() / (1024**2)
+        except:
+            stats["error_gpu"] = "Could not get GPU memory stats"
+            
+    return stats
 
 def plot_learning_curve(values, window_size=100, title="", xlabel="", ylabel="", save_path=None, max_points=5000):
     """

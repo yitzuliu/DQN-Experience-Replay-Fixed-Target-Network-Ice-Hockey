@@ -335,32 +335,47 @@ class WarpFrame(gym.ObservationWrapper):
         """Process frame using GPU with PyTorch"""
         # Convert to PyTorch tensor and move to GPU
         with torch.no_grad():
-            # Copy frame data to pre-allocated GPU tensor
-            self.gpu_frame[0] = torch.from_numpy(frame).permute(2, 0, 1).float() / 255.0
-            
-            # Convert to grayscale if needed
-            if self.grayscale:
-                # RGB to grayscale conversion weights
-                grayscale = self.gpu_frame[0][0] * 0.299 + self.gpu_frame[0][1] * 0.587 + self.gpu_frame[0][2] * 0.114
-                grayscale = grayscale.unsqueeze(0)  # Add channel dimension
-            else:
-                grayscale = self.gpu_frame[0]
+            try:
+                # Copy frame data to pre-allocated GPU tensor
+                self.gpu_frame[0] = torch.from_numpy(frame).permute(2, 0, 1).float() / 255.0
                 
-            # Resize using GPU
-            resized = torch.nn.functional.interpolate(
-                grayscale.unsqueeze(0),  # Add batch dimension
-                size=(self.height, self.width),
-                mode='bilinear',
-                align_corners=False
-            ).squeeze(0)  # Remove batch dimension
-            
-            # Convert back to numpy and rescale to [0, 255]
-            if self.grayscale:
-                result = (resized * 255).byte().cpu().numpy().transpose(1, 2, 0)
-            else:
-                result = (resized * 255).byte().cpu().numpy().transpose(1, 2, 0)
+                # Convert to grayscale if needed
+                if self.grayscale:
+                    # RGB to grayscale conversion weights
+                    grayscale = self.gpu_frame[0][0] * 0.299 + self.gpu_frame[0][1] * 0.587 + self.gpu_frame[0][2] * 0.114
+                    grayscale = grayscale.unsqueeze(0)  # Add channel dimension
+                else:
+                    grayscale = self.gpu_frame[0]
+                    
+                # Resize using GPU
+                resized = torch.nn.functional.interpolate(
+                    grayscale.unsqueeze(0),  # Add batch dimension
+                    size=(self.height, self.width),
+                    mode='bilinear',
+                    align_corners=False
+                ).squeeze(0)  # Remove batch dimension
                 
-            return result
+                # Convert back to numpy and rescale to [0, 255]
+                if self.grayscale:
+                    result = (resized * 255).byte().cpu().numpy().transpose(1, 2, 0)
+                else:
+                    result = (resized * 255).byte().cpu().numpy().transpose(1, 2, 0)
+                
+                # Ensure memory is freed
+                del resized
+                del grayscale
+                torch.cuda.empty_cache()
+                    
+                return result
+                
+            except RuntimeError as e:
+                # Handle CUDA out of memory error
+                if "CUDA out of memory" in str(e):
+                    print(f"GPU memory error in frame processing: {e}")
+                    print("Falling back to CPU processing...")
+                    return self._cpu_process_frame(frame)
+                else:
+                    raise e
 
 class FrameStack(gym.Wrapper):
     """

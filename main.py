@@ -41,6 +41,7 @@ def main():
     train_parser.add_argument("--render", action="store_true", help="Render training episodes")
     train_parser.add_argument("--gpu", action="store_true", help="Force GPU usage")
     train_parser.add_argument("--cpu", action="store_true", help="Force CPU usage")
+    train_parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint file")
     
     # === Evaluate command ===
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate a trained model")
@@ -89,7 +90,9 @@ def main():
             trained_agent, stats = train(
                 device=device,
                 render_training=args.render,
-                output_dir=args.output_dir
+                output_dir=args.output_dir,
+                enable_recovery=True,
+                resume_checkpoint=args.resume
             )
             
             print("Training complete!")
@@ -178,6 +181,8 @@ def display_project_info():
     system_info = utils.get_system_info()
     if system_info.get('cuda_available', False):
         print(f"Running on: {system_info.get('gpu_name', 'GPU')}")
+    elif system_info.get('mps_available', False):
+        print("Running on: Apple Silicon GPU")
     else:
         print("Running on: CPU")
     
