@@ -196,6 +196,9 @@ class DQNAgent:
         
         Returns:
             float: Loss value for monitoring
+            
+        Raises:
+            KeyboardInterrupt: Re-raises KeyboardInterrupt for proper training termination
         """
         # Check if enough samples in memory for learning
         if not self.memory.can_sample(config.BATCH_SIZE):
@@ -210,7 +213,7 @@ class DQNAgent:
                 # Regular sampling for CPU
                 states, actions, rewards, next_states, dones = self.memory.sample(config.BATCH_SIZE)
             
-            # Check if sampling was interrupted
+            # Check if sampling was interrupted (this should not happen with new KeyboardInterrupt handling)
             if states is None:
                 return None
                 
@@ -259,8 +262,8 @@ class DQNAgent:
             return loss_value
         
         except KeyboardInterrupt:
-            print("\nLearning interrupted. Preparing for safe shutdown...")
-            return None
+            # Re-raise the KeyboardInterrupt to propagate it properly to the training loop
+            raise
         except Exception as e:
             print(f"\nError during learning: {e}")
             return None

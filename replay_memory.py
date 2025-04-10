@@ -393,6 +393,9 @@ class OptimizedArrayReplayMemory:
             
         Returns:
             tuple: Batch of (states, actions, rewards, next_states, dones) with pinned memory
+            
+        Raises:
+            KeyboardInterrupt: Re-raises KeyboardInterrupt for proper training termination
         """
         try:
             # Make sure we don't select the last element as an index for a next state
@@ -417,9 +420,10 @@ class OptimizedArrayReplayMemory:
             return states, actions, rewards, next_states, dones
             
         except KeyboardInterrupt:
-            # If interrupted during sampling, return None values to allow clean shutdown
-            print("\nInterrupted during memory sampling. Preparing for safe shutdown...")
-            return None, None, None, None, None
+            # Re-raise the KeyboardInterrupt for proper handling in the training loop
+            print("\nKeyboard interrupt detected during sampling. Preparing for clean shutdown...")
+            raise  # Re-raise the keyboard interrupt rather than returning None
+            
         except Exception as e:
             # More descriptive error message
             print(f"Warning: Error during memory sampling: {e}")

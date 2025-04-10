@@ -172,6 +172,9 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
         }
         recovery_info_path = os.path.join(log_dir, "recovery_info.json") if output_dir else None
     
+    # Add a flag to indicate graceful shutdown requested
+    shutdown_requested = False
+
     # ===== TRAINING LOOP =====
     
     # 8. Training loop - PSEUDOCODE LINE 4: For each episode = 1 to M
@@ -220,8 +223,9 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
                         if loss is not None:
                             episode_loss.append(loss)
                 except KeyboardInterrupt:
-                    # Handle keyboard interrupt by breaking the episode loop
-                    print("\nTraining step interrupted by user. Preparing for safe shutdown...")
+                    # Handle keyboard interrupt by breaking the episode loop and the training loop
+                    print("\nTraining interrupted by user. Preparing for safe shutdown...")
+                    shutdown_requested = True
                     done = True  # Force episode to end
                 
                 # Update target network periodically - PSEUDOCODE LINE 14
@@ -344,13 +348,28 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
                             print(f"Warning: Error generating plots: {e}")
                 except Exception as e:
                     print(f"Warning: Error during periodic saving at episode {episode}: {e}")
+            
+            # Check if shutdown was requested
+            if shutdown_requested:
+                print("Gracefully shutting down training as requested...")
+                break
     except KeyboardInterrupt:
         print("\nTraining interrupted by user. Saving progress...")
         # Save current model on interrupt
         if 'agent' in locals():
-            interrupted_path = os.path.join(model_dir, "interrupted_model.pth")
-            agent.save_model(interrupted_path)
-            print(f"Interrupted model saved to {interrupted_path}")
+            try:
+                interrupted_path = os.path.join(model_dir, "interrupted_model.pth")
+                print(f"Saving interrupted model to {interrupted_path}...")
+                # Save to a temp file first to avoid corruption
+                temp_path = interrupted_path + ".tmp"
+                agent.save_model(temp_path)
+                if os.path.exists(temp_path):
+                    if os.path.exists(interrupted_path):
+                        os.remove(interrupted_path)
+                    os.rename(temp_path, interrupted_path)
+                    print(f"Interrupted model saved to {interrupted_path}")
+            except Exception as e:
+                print(f"Warning: Failed to save model: {e}")
     except Exception as e:
         print(f"\nUnexpected error during training: {str(e)}")
         import traceback
