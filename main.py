@@ -87,13 +87,19 @@ def main():
         
         # Run training
         try:
-            trained_agent, stats = train(
-                device=device,
-                render_training=args.render,
-                output_dir=args.output_dir,
-                enable_recovery=True,
-                resume_checkpoint=args.resume
-            )
+            if args.resume:
+                from resume import resume_training
+                trained_agent, stats = resume_training(
+                    checkpoint_path=args.resume,
+                    output_dir=args.output_dir
+                )
+            else:
+                trained_agent, stats = train(
+                    device=device,
+                    render_training=args.render,
+                    output_dir=args.output_dir,
+                    enable_recovery=True
+                )
             
             print("Training complete!")
         except KeyboardInterrupt:

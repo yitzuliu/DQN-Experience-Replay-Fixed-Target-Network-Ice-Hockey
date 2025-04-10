@@ -489,28 +489,22 @@ if __name__ == "__main__":
         if input("Show training curves? (y/n): ").lower() == 'y':
             utils.plot_episode_stats(training_stats, show=True)
     except KeyboardInterrupt:
-        print("\nTraining interrupted by user. Saving progress...")
-        # Save current model on interrupt
-        if 'agent' in locals():
-            # Ensure model_dir is defined
-            model_dir = locals().get('model_dir', './models')
-            os.makedirs(model_dir, exist_ok=True)
-            interrupted_path = os.path.join(model_dir, "interrupted_model.pth")
-            if 'agent' in locals():
-                agent.save_model(interrupted_path)
-            else:
-                print("No agent instance found to save.")
-            print(f"Interrupted model saved to {interrupted_path}")
+        print("\nTraining interrupted by user.")
     except Exception as e:
         print(f"\nUnexpected error during training: {str(e)}")
         import traceback
         traceback.print_exc()
     finally:
         # Clean up resources in all cases
-        if 'env' in locals():
+        if 'trained_agent' in locals():
             try:
-                env.close()
-                print("Environment closed successfully")
+                # Create reference to env closure from train function
+                local_env = None
+
+                # Close environment if it exists through trained_agent
+                if hasattr(trained_agent, 'env'):
+                    trained_agent.env.close()
+                    print("Environment closed successfully")
             except:
                 pass
         

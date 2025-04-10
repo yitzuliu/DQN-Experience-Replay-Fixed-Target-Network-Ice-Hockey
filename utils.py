@@ -6,6 +6,8 @@ import torch
 import platform  # For detecting operating system
 import time
 import gc  # Garbage collection for memory management
+import psutil
+
 
 def get_device():
     """
@@ -104,7 +106,6 @@ def get_system_info():
     
     # Memory information
     try:
-        import psutil
         vm = psutil.virtual_memory()
         info["total_memory_gb"] = f"{vm.total / (1024**3):.2f}"
         info["available_memory_gb"] = f"{vm.available / (1024**3):.2f}"
