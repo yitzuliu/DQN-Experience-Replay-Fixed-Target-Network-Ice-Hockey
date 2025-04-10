@@ -85,13 +85,20 @@ def main():
             config.LEARNING_STARTS = args.learning_starts
         
         # Run training
-        trained_agent, stats = train(
-            device=device,
-            render_training=args.render,
-            output_dir=args.output_dir
-        )
-        
-        print("Training complete!")
+        try:
+            trained_agent, stats = train(
+                device=device,
+                render_training=args.render,
+                output_dir=args.output_dir
+            )
+            
+            print("Training complete!")
+        except KeyboardInterrupt:
+            print("\nTraining interrupted by user.")
+        except Exception as e:
+            print(f"\nError during training: {e}")
+            import traceback
+            traceback.print_exc()
         
     elif args.command == "evaluate":
         # Run evaluation
@@ -175,6 +182,9 @@ def display_project_info():
         print("Running on: CPU")
     
     print("\nCommands: train | evaluate | compare | visualize")
+    print("Examples:")
+    print("  python main.py train")
+    print("  python main.py evaluate <model_path> --render")
     print("Use --help with any command for options")
     print("="*50 + "\n")
 
@@ -182,6 +192,16 @@ def display_project_info():
 if __name__ == "__main__":
     # Display project information on startup
     display_project_info()
+    
+    # Check if any arguments were provided
+    if len(sys.argv) == 1:
+        print("ERROR: No command specified. Please use one of the following commands:")
+        print("  train, evaluate, compare, visualize")
+        print("\nFor example:")
+        print("  python main.py train")
+        print("  python main.py evaluate results/run_TIMESTAMP/models/best_model.pth --render")
+        print("\nFor more information, run:\n  python main.py --help")
+        sys.exit(1)
     
     # Run main function
     main()

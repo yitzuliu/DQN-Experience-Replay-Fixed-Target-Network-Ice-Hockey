@@ -33,13 +33,13 @@ TRAINING_MODE = True  # Ensure render_mode is None during training
 # DEEP Q-LEARNING PARAMETERS
 ###############################
 
-# Core DQN parameters - scaled up for powerful hardware
+# Core DQN parameters
 LEARNING_RATE = 0.0001  # Standard learning rate for Adam optimizer
 GAMMA = 0.99  # Standard discount factor
-BATCH_SIZE = 4096  # Increased batch size for RTX 3090 (compared to standard 32-128)
-MEMORY_CAPACITY = 1000000  # 2M transitions (increased from typical 1M for more experience)
+BATCH_SIZE = 128  # Standard batch size
+MEMORY_CAPACITY = 100000  # 100K transitions (standard capacity)
 TARGET_UPDATE_FREQUENCY = 10000  # Update target network every 10K steps
-TRAINING_EPISODES = 10000  # Increased for more thorough training
+TRAINING_EPISODES = 10000  # Total number of training episodes
 
 # Exploration parameters
 EPSILON_START = 1.0
@@ -51,19 +51,14 @@ DEFAULT_EVALUATE_MODE = False
 LEARNING_STARTS = 50000  # Wait for more experiences before starting learning
 UPDATE_FREQUENCY = 4  # Standard update frequency
 SAVE_FREQUENCY = 200  # Save model every 200 episodes
-TARGET_UPDATE_PRINT_FREQUENCY = 50  # Print target update info every 10 updates
-DETAILED_LOG_FREQUENCY = 100  # Detailed logs every 50 episodes
 
 # Neural network settings
-USE_ONE_CONV_LAYER = False
+USE_ONE_CONV_LAYER = True
 USE_TWO_CONV_LAYERS = False
-USE_THREE_CONV_LAYERS = True  # Using full 3-layer architecture (hardware can handle it)
+USE_THREE_CONV_LAYERS = False  # Using full 3-layer architecture (hardware can handle it)
 
-# Gradient accumulation explanation
-# Gradient accumulation allows accumulating gradients over multiple small batches before updating the model
-# This is useful for memory-constrained situations, enabling the use of larger "virtual batch sizes"
-GRADIENT_ACCUMULATION_STEPS = 1  # Default is 1 (no accumulation); set >1 to enable gradient accumulation
-                                # Example: When set to 4, effective batch size = BATCH_SIZE * 4
+# Gradient accumulation
+GRADIENT_ACCUMULATION_STEPS = 1  # Default is 1 (no accumulation)
 
 # Evaluation settings
 EVAL_EPISODES = 30  # More evaluation episodes for better statistics
@@ -73,16 +68,11 @@ EVAL_FREQUENCY = 500  # Evaluate every 500 episodes
 # SYSTEM AND OPTIMIZATION
 ###############################
 
-# Parallelization - utilizing the 64 cores and RTX 3090
-NUM_PARALLEL_ENVS = 32  # Utilize multiple cores without overwhelming the system
-BATCH_PREFETCH_NUM_WORKERS = 16  # Multiple workers for data loading
-
-# Memory optimization - system has 125GB RAM, can use optimized implementation
+# Memory optimization
 MEMORY_IMPLEMENTATION = "optimized"  # Using memory-efficient implementation
 
-# GPU settings - leveraging the RTX 3090
+# GPU settings
 USE_GPU_PREPROCESSING = True  # Use GPU for frame preprocessing
-USE_MULTI_GPU = True  # Only one GPU available
 
 # Advanced features (disabled until implemented)
 PRIORITIZED_REPLAY = False  # Disabled until PrioritizedReplayMemory is implemented
@@ -91,8 +81,4 @@ PRIORITIZED_REPLAY_BETA_START = 0.4  # Starting beta value (not used currently)
 PRIORITIZED_REPLAY_BETA_FRAMES = 100000  # Frames over which to anneal beta (not used currently)
 DUELING_NETWORK = False  # Disabled until Dueling Network architecture is implemented
 DOUBLE_DQN = False  # Disabled until Double DQN logic is implemented
-
-# Reporting and monitoring
-TENSORBOARD_UPDATE_FREQUENCY = 100  # Update tensorboard every 100 steps
-WANDB_ENABLED = False  # Set to True if using Weights & Biases
 

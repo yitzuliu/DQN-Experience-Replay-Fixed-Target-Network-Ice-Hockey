@@ -225,30 +225,146 @@ class Logger:
         }
 
 
+def verify_logger(log_dir=None):
+    """
+    Function to verify logger functionality and diagnose issues.
+    
+    Args:
+        log_dir (str): Directory to check for logs
+    
+    Returns:
+        bool: True if verification passes
+    """
+    import os
+    import glob
+    
+    print("\n===== LOGGER VERIFICATION =====")
+    
+    # If log_dir not provided, try some common locations
+    if log_dir is None:
+        possible_dirs = [
+            "./logs",
+            "./results",
+            os.path.join(".", "results", "run_*"),
+            os.path.join(".", "results", "*", "logs")
+        ]
+        
+        log_files_found = []
+        for pattern in possible_dirs:
+            matching_dirs = glob.glob(pattern)
+            for directory in matching_dirs:
+                if os.path.isdir(directory):
+                    log_files = glob.glob(os.path.join(directory, "*.pkl")) + \
+                               glob.glob(os.path.join(directory, "*.json")) + \
+                               glob.glob(os.path.join(directory, "*.png"))
+                    if log_files:
+                        log_files_found.extend(log_files)
+                        print(f"Found {len(log_files)} log files in {directory}")
+                    
+        if not log_files_found:
+            print("No log files found in standard locations")
+            print("Try specifying a directory or checking permissions")
+            return False
+        else:
+            print(f"Found a total of {len(log_files_found)} log files")
+            for file in sorted(log_files_found)[:10]:  # Show first 10 files
+                print(f" - {file} ({os.path.getsize(file)} bytes)")
+            if len(log_files_found) > 10:
+                print(f" - ... and {len(log_files_found) - 10} more files")
+    else:
+        # Check specific directory
+        if not os.path.isdir(log_dir):
+            print(f"Directory does not exist: {log_dir}")
+            return False
+        
+        log_files = glob.glob(os.path.join(log_dir, "*.pkl")) + \
+                   glob.glob(os.path.join(log_dir, "*.json")) + \
+                   glob.glob(os.path.join(log_dir, "*.png"))
+        
+        if not log_files:
+            print(f"No log files found in {log_dir}")
+            print("Try checking permissions or if the directory is correct")
+            return False
+        else:
+            print(f"Found {len(log_files)} log files in {log_dir}")
+            for file in sorted(log_files)[:10]:  # Show first 10 files
+                print(f" - {file} ({os.path.getsize(file)} bytes)")
+            if len(log_files) > 10:
+                print(f" - ... and {len(log_files) - 10} more files")
+    
+    print("\nVerification complete.")
+    return True
+
+
 # Simple test if run directly
 if __name__ == "__main__":
     import random
+    import argparse
     
-    # Create logger
-    logger = Logger(experiment_name="simple_test")
+    parser = argparse.ArgumentParser(description="Verify and debug logger functionality")
+    parser.add_argument("--check", action="store_true", help="Check for existing log files")
+    parser.add_argument("--test", action="store_true", help="Run a test logger instance")
+    parser.add_argument("--dir", type=str, default=None, help="Directory to check or use for test")
+    args = parser.parse_args()
     
-    # Simulate 200 training episodes
-    for ep in range(1, 201):
-        # Log random metrics
-        reward = -15 + ep * 0.1 + random.uniform(-5, 5)  # Gradually increasing with noise
-        length = random.randint(500, 1000)
-        epsilon = max(0.1, 1.0 - (ep / 200))
-        loss = max(0.01, 1.0 * (0.98 ** ep))
+    if args.check:
+        verify_logger(args.dir)
+    
+    if args.test:
+        # Create a test logger and generate some dummy data
+        test_dir = args.dir or "./logs/test_logger"
+        print(f"Creating test logger in {test_dir}")
         
-        logger.log_episode(ep, reward, length, epsilon, loss)
+        test_logger = Logger(log_dir=test_dir, experiment_name="logger_test")
         
-        # Occasional evaluation
-        if ep % 50 == 0:
-            eval_rewards = [reward + random.uniform(-2, 5) for _ in range(5)]
-            logger.log_eval_episode(ep, eval_rewards)
+        # Generate dummy data
+        import random
+        import numpy as np
+        
+        for episode in range(1, 101):
+            # Simulate increasing rewards with noise
+            reward = -10 + episode * 0.2 + random.uniform(-2, 2)
+            length = int(300 + episode * 0.5 + random.uniform(-20, 20))
+            epsilon = max(0.1, 1.0 - (episode / 100))
+            loss = max(0.01, 1.0 - (episode / 200))
+            
+            # Log episode
+            test_logger.log_episode(episode, reward, length, epsilon, loss)
+            
+            # Occasional evaluation
+            if episode % 25 == 0:
+                eval_rewards = [reward + random.uniform(-1, 3) for _ in range(5)]
+                test_logger.log_eval_episode(episode, eval_rewards)
+        
+        # Save metrics and generate plots
+        test_logger.save_metrics()
+        test_logger.plot_training_curves(save=True, show=False)
+        
+        print(f"Test logger data saved to {test_dir}")
+        verify_logger(test_dir)
     
-    # Save metrics and generate plots
-    logger.save_metrics()
-    logger.plot_training_curves(show=True)
-    
-    print(f"Test complete. Check logs in: {logger.log_dir}")
+    # Only run this code if neither --check nor --test is specified
+    if not (args.check or args.test):
+        print("Running default logger test...")
+        logger = Logger(experiment_name="default_test")
+        
+        # Simulate 200 training episodes
+        for ep in range(1, 201):
+            # Log random metrics
+            reward = -15 + ep * 0.1 + random.uniform(-5, 5)  # Gradually increasing with noise
+            length = random.randint(500, 1000)
+            epsilon = max(0.1, 1.0 - (ep / 200))
+            loss = max(0.01, 1.0 * (0.98 ** ep))
+            
+            logger.log_episode(ep, reward, length, epsilon, loss)
+            
+            # Occasional evaluation
+            if ep % 50 == 0:
+                eval_rewards = [reward + random.uniform(-2, 5) for _ in range(5)]
+                logger.log_eval_episode(ep, eval_rewards)
+        
+        # Save metrics and generate plots
+        logger.save_metrics()
+        logger.plot_training_curves(show=True)
+        
+        print(f"Test complete. Check logs in: {logger.log_dir}")

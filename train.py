@@ -85,8 +85,13 @@ def train(device=None, render_training=False, output_dir=None):
     if device.type == 'cuda':
         # Benchmark mode can improve performance when input sizes don't change
         torch.backends.cudnn.benchmark = True
-        # Deterministic mode for reproducibility (comment out for max speed)
-        # torch.backends.cudnn.deterministic = True
+        
+        # 啟用 TensorFloat32 加速（用於 RTX 30 系列及以上）
+        if torch.cuda.get_device_capability(0)[0] >= 8:
+            # 對於 RTX 30 系列（Ampere）以上的 GPU
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            print("Enabled TensorFloat32 precision for faster computation")
         
         # Set memory allocation strategy for better GPU memory management
         torch.cuda.empty_cache()
@@ -130,7 +135,6 @@ def train(device=None, render_training=False, output_dir=None):
         force_training_mode=True,
         gpu_acceleration=device.type in ['cuda', 'mps']  # Use GPU for preprocessing when available
     )
-    
     # Get environment info
     state_shape = env.observation_space.shape  # Should be (C, H, W) in PyTorch format
     n_actions = env.action_space.n
@@ -178,7 +182,6 @@ def train(device=None, render_training=False, output_dir=None):
     # Use tqdm for progress bar
     episode_iterator = tqdm(range(1, config.TRAINING_EPISODES + 1), desc="Training Progress", 
                            disable=True)  # Disable tqdm progress bar
-    
     for episode in episode_iterator:
         episode_start_time = time.time()
         episode_reward = 0
@@ -207,10 +210,17 @@ def train(device=None, render_training=False, output_dir=None):
             step_count += 1
             
             # Learn from experiences when memory has enough samples - PSEUDOCODE LINES 11-13
-            if step_count > config.LEARNING_STARTS and step_count % config.UPDATE_FREQUENCY == 0:
-                loss = agent.learn()
-                if loss is not None:
-                    episode_loss.append(loss)
+            try:
+                if step_count > config.LEARNING_STARTS and step_count % (config.UPDATE_FREQUENCY * 2) == 0:
+                    # 每次學習進行兩次優化步驟，減少 CPU-GPU 同步次數
+                    for _ in range(2):
+                        loss = agent.learn()
+                        if loss is not None:
+                            episode_loss.append(loss)
+            except KeyboardInterrupt:
+                # Handle keyboard interrupt by breaking the episode loop
+                print("\nTraining step interrupted by user. Preparing for safe shutdown...")
+                done = True  # Force episode to end
             
             # Update target network periodically - PSEUDOCODE LINE 14
             if step_count % config.TARGET_UPDATE_FREQUENCY == 0:
@@ -245,7 +255,7 @@ def train(device=None, render_training=False, output_dir=None):
         
         # Print only the episode summary line, no other details
         print(f"Episode {episode}/{config.TRAINING_EPISODES} - "
-              f"Reward: {episode_reward:.2f}, Length: {episode_length}, "
+              f"Total Steps: {step_count}, Reward: {episode_reward:.2f}, "
               f"Loss: {avg_loss:.6f}, Epsilon: {agent.epsilon:.4f}, "
               f"Time: {episode_duration:.2f}s")
         
@@ -277,43 +287,83 @@ def train(device=None, render_training=False, output_dir=None):
         
         # Periodically save checkpoint and visualize progress
         if episode % config.SAVE_FREQUENCY == 0:
-            # Save model checkpoint
-            agent.save_model(os.path.join(model_dir, f"model_ep{episode}.pth"))
-            
-            # Save statistics (using pickle for efficiency)
-            stats_file = os.path.join(log_dir, "training_stats.pkl")
-            with open(stats_file, "wb") as f:
-                pickle.dump(stats, f)
-            
-            # Update plots
-            if len(stats["episode_rewards"]) > 0:
-                # Plot rewards
-                utils.plot_learning_curve(
-                    values=stats["episode_rewards"],
-                    window_size=100,
-                    title="Episode Rewards",
-                    xlabel="Episode",
-                    ylabel="Reward",
-                    save_path=os.path.join(viz_dir, "rewards.png")
-                )
+            try:
+                # Save model checkpoint
+                checkpoint_path = os.path.join(model_dir, f"model_ep{episode}.pth")
+                if agent.save_model(checkpoint_path):
+                    print(f"Model checkpoint saved to {checkpoint_path}")
                 
-                # Plot losses if any
-                if any(stats["episode_losses"]):
-                    utils.plot_learning_curve(
-                        values=stats["episode_losses"],
-                        window_size=100,
-                        title="Training Loss",
-                        xlabel="Episode",
-                        ylabel="Loss",
-                        save_path=os.path.join(viz_dir, "losses.png")
-                    )
+                # Save statistics (using pickle for efficiency)
+                stats_file = os.path.join(log_dir, "training_stats.pkl")
+                if utils.save_object(stats, stats_file):
+                    print(f"Training stats saved to {stats_file}")
+                
+                # Also save as JSON for easier inspection
+                try:
+                    import json
+                    # Convert numpy arrays to lists for JSON serialization
+                    json_stats = {}
+                    for key, value in stats.items():
+                        if isinstance(value, list) and len(value) > 0:
+                            # If list contains numpy values, convert them
+                            if hasattr(value[0], 'item'):
+                                json_stats[key] = [float(x) for x in value]
+                            else:
+                                json_stats[key] = value
+                        elif hasattr(value, 'item'):
+                            json_stats[key] = float(value)
+                        else:
+                            json_stats[key] = value
+                    
+                    # Save only most recent values to keep file size manageable
+                    for key in ['episode_rewards', 'episode_lengths', 'episode_losses', 'episode_q_values', 'epsilons']:
+                        if key in json_stats and len(json_stats[key]) > 1000:
+                            json_stats[key + "_recent"] = json_stats[key][-1000:]
+                            
+                    json_file = os.path.join(log_dir, "training_stats.json")
+                    with open(json_file, 'w') as f:
+                        json.dump(json_stats, f, indent=2)
+                except Exception as e:
+                    print(f"Warning: Could not save stats as JSON: {e}")
+                
+                # Update plots
+                if len(stats["episode_rewards"]) > 0:
+                    try:
+                        # Plot rewards
+                        utils.plot_learning_curve(
+                            values=stats["episode_rewards"],
+                            window_size=100,
+                            title=f"Episode Rewards (Episode {episode})",
+                            xlabel="Episode",
+                            ylabel="Reward",
+                            save_path=os.path.join(viz_dir, "rewards.png")
+                        )
+                        
+                        # Plot losses if any
+                        if any(stats["episode_losses"]):
+                            utils.plot_learning_curve(
+                                values=stats["episode_losses"],
+                                window_size=100,
+                                title=f"Training Loss (Episode {episode})",
+                                xlabel="Episode",
+                                ylabel="Loss",
+                                save_path=os.path.join(viz_dir, "losses.png")
+                            )
+                            
+                        # Generate combined plots
+                        utils.plot_episode_stats(stats, save_dir=viz_dir, show=False)
+                        print(f"Plots updated in {viz_dir}")
+                    except Exception as e:
+                        print(f"Warning: Error generating plots: {e}")
+            except Exception as e:
+                print(f"Warning: Error during periodic saving at episode {episode}: {e}")
         
-        # 每20個回合釋放一次GPU記憶體
+        # Periodically clear GPU memory cache to prevent memory fragmentation
         if episode % 20 == 0 and device.type == 'cuda':
-            # 釋放GPU記憶體
+            # Release GPU memory
             torch.cuda.empty_cache()
-            # 只在debug模式下打印
-            if False:  # 設為True開啟記憶體使用報告
+            # Only print in debug mode
+            if False:  # Set to True to enable memory usage reporting
                 allocated = torch.cuda.memory_allocated() / 1e6
                 reserved = torch.cuda.memory_reserved() / 1e6
                 print(f"[Memory] Released GPU cache. Current usage: {allocated:.1f}MB allocated, {reserved:.1f}MB reserved")
@@ -331,21 +381,31 @@ def train(device=None, render_training=False, output_dir=None):
     agent.save_model(final_model_path)
     print(f"Final model saved to {final_model_path}")
     
-    # Save final statistics
-    final_stats_path = os.path.join(log_dir, "final_stats.pkl")
-    with open(final_stats_path, "wb") as f:
-        pickle.dump(stats, f)
-    
-    # Generate final visualizations
-    utils.plot_episode_stats(stats, save_dir=viz_dir, show=False)
+    # Save final statistics with error handling
+    try:
+        final_stats_path = os.path.join(log_dir, "final_stats.pkl")
+        if utils.save_object(stats, final_stats_path):
+            print(f"Final statistics saved to {final_stats_path}")
+            
+        # Generate final visualizations with error handling
+        try:
+            utils.plot_episode_stats(stats, save_dir=viz_dir, show=False)
+            print(f"Final plots saved to {viz_dir}")
+        except Exception as e:
+            print(f"Warning: Could not generate final plots: {e}")
+    except Exception as e:
+        print(f"Warning: Error saving final statistics: {e}")
     
     # Clean up resources
     env.close()
     
     # Free GPU memory if available
     if device.type == 'cuda':
-        torch.cuda.empty_cache()
-        print("GPU memory cleared")
+        try:
+            torch.cuda.empty_cache()
+            print("GPU memory cleared")
+        except Exception as e:
+            print(f"Warning: Could not clear GPU memory: {e}")
     
     print(f"Training completed. To evaluate the trained models, use:")
     print(f"  python evaluate.py evaluate {final_model_path} --render")
@@ -372,7 +432,7 @@ if __name__ == "__main__":
     if args.episodes != config.TRAINING_EPISODES:
         print(f"Overriding training episodes from {config.TRAINING_EPISODES} to {args.episodes}")
         config.TRAINING_EPISODES = args.episodes
-        
+    
     if args.learning_starts != config.LEARNING_STARTS:
         print(f"Overriding learning start threshold from {config.LEARNING_STARTS} to {args.learning_starts}")
         config.LEARNING_STARTS = args.learning_starts
@@ -436,7 +496,6 @@ if __name__ == "__main__":
         # Optional: Show final training curves
         if input("Show training curves? (y/n): ").lower() == 'y':
             utils.plot_episode_stats(training_stats, show=True)
-        
     except KeyboardInterrupt:
         print("\nTraining interrupted by user. Saving progress...")
         # Save current model on interrupt
@@ -446,10 +505,26 @@ if __name__ == "__main__":
             os.makedirs(model_dir, exist_ok=True)
             interrupted_path = os.path.join(model_dir, "interrupted_model.pth")
             if 'agent' in locals():
-                if 'agent' in locals():
-                    agent.save_model(interrupted_path)
-                else:
-                    print("No agent instance found to save.")
+                agent.save_model(interrupted_path)
             else:
                 print("No agent instance found to save.")
             print(f"Interrupted model saved to {interrupted_path}")
+    except Exception as e:
+        print(f"\nUnexpected error during training: {str(e)}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        # Clean up resources in all cases
+        if 'env' in locals():
+            try:
+                env.close()
+                print("Environment closed successfully")
+            except:
+                pass
+        
+        if 'device' in locals() and device.type == 'cuda':
+            try:
+                torch.cuda.empty_cache()
+                print("GPU memory cleared")
+            except:
+                pass

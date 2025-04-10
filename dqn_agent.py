@@ -201,62 +201,93 @@ class DQNAgent:
         if not self.memory.can_sample(config.BATCH_SIZE):
             return None
         
-        # Sample random minibatch of transitions from replay memory - PSEUDOCODE LINE 11
-        if self.device.type == 'cuda':
-            # Use pinned memory for faster CPU to GPU transfer
-            states, actions, rewards, next_states, dones = self.memory.sample_pinned(config.BATCH_SIZE)
-        else:
-            # Regular sampling for CPU
-            states, actions, rewards, next_states, dones = self.memory.sample(config.BATCH_SIZE)
-        
-        # Move tensors to the correct device
-        states = states.to(self.device)
-        actions = actions.to(self.device)
-        rewards = rewards.to(self.device)
-        next_states = next_states.to(self.device)
-        dones = dones.to(self.device)
-        
-        # Compute current Q-values: Q(s, a) - the model computes Q(s) for all a
-        q_values = self.q_network(states)
-        # Select the Q-value for the action that was actually taken
-        q_values = q_values.gather(1, actions)
-        
-        # Compute next state Q-values using target network: max_a' Q_target(s', a')
-        with torch.no_grad():  # No need for gradients for target values
-            # Use target network to compute next state Q-values
-            # This stabilizes learning by separating prediction from the target
-            next_q_values = self.target_network(next_states).max(1, keepdim=True)[0]
+        try:
+            # Sample random minibatch of transitions from replay memory - PSEUDOCODE LINE 11
+            if self.device.type == 'cuda':
+                # Use pinned memory for faster CPU to GPU transfer
+                states, actions, rewards, next_states, dones = self.memory.sample_pinned(config.BATCH_SIZE)
+            else:
+                # Regular sampling for CPU
+                states, actions, rewards, next_states, dones = self.memory.sample(config.BATCH_SIZE)
             
-            # Compute target Q values using Bellman equation - PSEUDOCODE LINE 12
-            # If next state is terminal (done): yⱼ ← Rⱼ₊₁
-            # Else: yⱼ ← Rⱼ₊₁ + γ * maxₐ' Q_target(Sⱼ₊₁, a'; θ₂)
-            target_q_values = rewards + (1 - dones) * config.GAMMA * next_q_values
+            # Check if sampling was interrupted
+            if states is None:
+                return None
+                
+            # Move tensors to the correct device
+            states = states.to(self.device)
+            actions = actions.to(self.device)
+            rewards = rewards.to(self.device)
+            next_states = next_states.to(self.device)
+            dones = dones.to(self.device)
+            
+            # 啟用 CUDA 圖（Graph）優化以加速重複運算
+            if self.device.type == 'cuda' and hasattr(torch, 'cuda') and hasattr(torch.cuda, 'amp'):
+                with torch.cuda.amp.autocast():
+                    # 使用混合精度計算
+                    q_values = self.q_network(states)
+                    q_values = q_values.gather(1, actions)
+                    # Compute next state Q-values using target network: max_a' Q_target(s', a')
+                    with torch.no_grad():  # No need for gradients for target values
+                        # Use target network to compute next state Q-values
+                        # This stabilizes learning by separating prediction from the target
+                        next_q_values = self.target_network(next_states).max(1, keepdim=True)[0]
+                        
+                        # Compute target Q values using Bellman equation - PSEUDOCODE LINE 12
+                        # If next state is terminal (done): yⱼ ← Rⱼ₊₁
+                        # Else: yⱼ ← Rⱼ₊₁ + γ * maxₐ' Q_target(Sⱼ₊₁, a'; θ₂)
+                        target_q_values = rewards + (1 - dones) * config.GAMMA * next_q_values
+                    
+                    # Compute loss - how far current Q-values are from target Q-values
+                    # PSEUDOCODE LINE 13: L = (yⱼ - Q(Sⱼ, Aⱼ; θ₁))²
+                    loss = self.loss_fn(q_values, target_q_values)
+            else:
+                # 原始代碼路徑
+                q_values = self.q_network(states)
+                q_values = q_values.gather(1, actions)
+                # Compute next state Q-values using target network: max_a' Q_target(s', a')
+                with torch.no_grad():  # No need for gradients for target values
+                    # Use target network to compute next state Q-values
+                    # This stabilizes learning by separating prediction from the target
+                    next_q_values = self.target_network(next_states).max(1, keepdim=True)[0]
+                    
+                    # Compute target Q values using Bellman equation - PSEUDOCODE LINE 12
+                    # If next state is terminal (done): yⱼ ← Rⱼ₊₁
+                    # Else: yⱼ ← Rⱼ₊₁ + γ * maxₐ' Q_target(Sⱼ₊₁, a'; θ₂)
+                    target_q_values = rewards + (1 - dones) * config.GAMMA * next_q_values
+                
+                # Compute loss - how far current Q-values are from target Q-values
+                # PSEUDOCODE LINE 13: L = (yⱼ - Q(Sⱼ, Aⱼ; θ₁))²
+                loss = self.loss_fn(q_values, target_q_values)
+            
+            # Perform gradient descent step - PSEUDOCODE LINE 13 (continued)
+            self.optimizer.zero_grad()  # Clear previous gradients
+            
+            # Compute gradients
+            loss.backward()
+            
+            # Gradient accumulation: only update parameters after accumulating specified number of steps
+            # When GRADIENT_ACCUMULATION_STEPS=1, update occurs every time
+            # When GRADIENT_ACCUMULATION_STEPS>1, update occurs after accumulating gradients from multiple batches
+            if (self.steps_done % config.GRADIENT_ACCUMULATION_STEPS) == 0:
+                self.optimizer.step()  # Actually update network weights
+                self.optimizer.zero_grad()  # Reset gradients for next accumulation
+            
+            # Gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=10.0)
+            
+            # Track loss for monitoring
+            loss_value = loss.item()
+            self.losses.append(loss_value)
+            
+            return loss_value
         
-        # Compute loss - how far current Q-values are from target Q-values
-        # PSEUDOCODE LINE 13: L = (yⱼ - Q(Sⱼ, Aⱼ; θ₁))²
-        loss = self.loss_fn(q_values, target_q_values)
-        
-        # Perform gradient descent step - PSEUDOCODE LINE 13 (continued)
-        self.optimizer.zero_grad()  # Clear previous gradients
-        
-        # Compute gradients
-        loss.backward()
-        
-        # Gradient accumulation: only update parameters after accumulating specified number of steps
-        # When GRADIENT_ACCUMULATION_STEPS=1, update occurs every time
-        # When GRADIENT_ACCUMULATION_STEPS>1, update occurs after accumulating gradients from multiple batches
-        if (self.steps_done % config.GRADIENT_ACCUMULATION_STEPS) == 0:
-            self.optimizer.step()  # Actually update network weights
-            self.optimizer.zero_grad()  # Reset gradients for next accumulation
-        
-        # Gradient clipping to prevent exploding gradients
-        torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=10.0)
-        
-        # Track loss for monitoring
-        loss_value = loss.item()
-        self.losses.append(loss_value)
-        
-        return loss_value
+        except KeyboardInterrupt:
+            print("\nLearning interrupted. Preparing for safe shutdown...")
+            return None
+        except Exception as e:
+            print(f"\nError during learning: {e}")
+            return None
     
     def update_target_network(self):
         """

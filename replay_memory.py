@@ -351,23 +351,32 @@ class OptimizedArrayReplayMemory:
         Returns:
             tuple: Batch of (states, actions, rewards, next_states, dones) with pinned memory
         """
-        indices = np.random.choice(self.counter, batch_size, replace=False)
-        
-        # Get corresponding next state indices
-        next_indices = self.indices[indices]
-        
-        # Convert uint8 back to float32 normalized [0,1] range when sampling
-        states = self.states[indices].astype(np.float32) / 255.0
-        next_states = self.states[next_indices].astype(np.float32) / 255.0
-        
-        # Convert to PyTorch tensors with pinned memory for faster GPU transfer
-        states = torch.from_numpy(states).pin_memory()
-        actions = torch.LongTensor(self.actions[indices]).unsqueeze(1).pin_memory()
-        rewards = torch.FloatTensor(self.rewards[indices]).unsqueeze(1).pin_memory()
-        next_states = torch.from_numpy(next_states).pin_memory()
-        dones = torch.FloatTensor(self.dones[indices].astype(np.float32)).unsqueeze(1).pin_memory()
-        
-        return states, actions, rewards, next_states, dones
+        try:
+            indices = np.random.choice(self.counter, batch_size, replace=False)
+            
+            # Get corresponding next state indices
+            next_indices = self.indices[indices]
+            
+            # 預先合併批次以減少 PyTorch 操作
+            states_and_next = np.concatenate([self.states[indices], self.states[next_indices]])
+            states_and_next_gpu = torch.from_numpy(states_and_next.astype(np.float32) / 255.0).pin_memory()
+            
+            # 使用切片而非分別創建張量
+            batch_size_half = batch_size
+            states = states_and_next_gpu[:batch_size_half]
+            next_states = states_and_next_gpu[batch_size_half:]
+            
+            # Convert to PyTorch tensors with pinned memory for faster GPU transfer
+            actions = torch.LongTensor(self.actions[indices]).unsqueeze(1).pin_memory()
+            rewards = torch.FloatTensor(self.rewards[indices]).unsqueeze(1).pin_memory()
+            dones = torch.FloatTensor(self.dones[indices].astype(np.float32)).unsqueeze(1).pin_memory()
+            
+            return states, actions, rewards, next_states, dones
+            
+        except KeyboardInterrupt:
+            # If interrupted during sampling, return None values to allow clean shutdown
+            print("\nInterrupted during memory sampling. Preparing for safe shutdown...")
+            return None, None, None, None, None
     
     def __len__(self):
         return self.counter

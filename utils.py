@@ -3,99 +3,22 @@ import matplotlib.pyplot as plt
 import os
 import pickle
 import torch
-import platform  # For detecting operating system
-import multiprocessing as mp  # For getting CPU core count
-import time  # For timestamp creation
+import time
 
-def get_device(force_cpu=False):
+def get_device():
     """
-    Determine the optimal device for training (CPU or GPU).
+    Determine if GPU is available and return appropriate device.
     
-    This function detects available hardware acceleration:
-    - CUDA for NVIDIA GPUs (with multi-GPU awareness)
-    - MPS for Apple Silicon (M1/M2/M3) Macs
-    - Falls back to CPU if no acceleration is available
-    
-    Args:
-        force_cpu (bool): If True, will always return CPU even if GPU is available
-        
     Returns:
-        torch.device: The device to use for tensor operations
+        torch.device: CPU or GPU device for tensor operations
     """
-    if force_cpu:
-        return torch.device("cpu")
-    
-    # Check for CUDA (NVIDIA GPUs)
     if torch.cuda.is_available():
-        num_gpus = torch.cuda.device_count()
-        if num_gpus > 1:
-            # Use the first available GPU, leaving at least one free
-            device = torch.device("cuda:0")
-            gpu_name = torch.cuda.get_device_name(0)
-            gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)  # Convert to GB
-            print(f"Using CUDA GPU: {gpu_name} ({gpu_mem:.2f} GB), leaving {num_gpus - 1} GPU(s) free")
-        else:
-            print("Only one GPU available, using it fully")
-            device = torch.device("cuda")
-        torch.backends.cudnn.benchmark = True
+        device = torch.device("cuda")
+        print(f"Using GPU: {torch.cuda.get_device_name(0)}")
         return device
-    
-    # Check for MPS (Apple Silicon M1/M2/M3)
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available() and platform.processor() == 'arm':
-        device = torch.device("mps")
-        print("Using M-series Mac GPU (Metal)")
-        return device
-    
-    # Fall back to CPU
     else:
-        # Leave at least one CPU core free
-        num_cores = os.cpu_count()
-        if num_cores > 1:
-            torch.set_num_threads(num_cores - 1)
-            print(f"Using CPU: {num_cores - 1} cores (1 core left free)")
-        else:
-            torch.set_num_threads(1)
-            print("Using CPU: 1 core (no cores left free)")
+        print("GPU not available, using CPU")
         return torch.device("cpu")
-
-def get_system_info():
-    """
-    Get information about the system for logging and optimization decisions.
-    
-    Returns:
-        dict: Dictionary containing system information
-    """
-    info = {
-        "os": platform.system(),
-        "os_version": platform.version(),
-        "cpu_count": mp.cpu_count(),
-        "cpu_type": platform.processor() or platform.machine(),
-        "python_version": platform.python_version(),
-        "torch_version": torch.__version__,
-        "cuda_available": torch.cuda.is_available(),
-    }
-    
-    # Add NVIDIA GPU details if available
-    if torch.cuda.is_available():
-        info["gpu_name"] = torch.cuda.get_device_name(0)
-        info["gpu_count"] = torch.cuda.device_count()
-        info["cuda_version"] = torch.version.cuda
-        
-        # Add GPU memory information
-        total_memory = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)  # Convert to GB
-        info["gpu_memory_gb"] = f"{total_memory:.2f}"
-    
-    # Add Apple Silicon (MPS) details if available
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        info["mps_available"] = True
-        info["gpu_type"] = "Apple Silicon"
-        if platform.processor() == 'arm':
-            info["apple_silicon"] = True
-    
-    # Add number of CPU threads being used
-    info["cpu_threads_used"] = torch.get_num_threads()
-    
-    return info
 
 def create_directories(base_dir="./results"):
     """
@@ -142,6 +65,10 @@ def plot_learning_curve(values, window_size=100, title="", xlabel="", ylabel="",
         save_path (str): Path to save the figure, or None to display
         max_points (int): Maximum number of points to plot (down-samples if exceeded)
     """
+    if not values:
+        print(f"Warning: No data to plot for {title}")
+        return
+    
     plt.figure(figsize=(10, 6))
     
     # Down-sample if too many points (for efficiency)
@@ -149,7 +76,6 @@ def plot_learning_curve(values, window_size=100, title="", xlabel="", ylabel="",
         skip = len(values) // max_points
         indices = np.arange(0, len(values), skip)
         values = [values[i] for i in indices]
-        print(f"Down-sampled from {len(values)*skip} to {len(values)} points for plotting efficiency")
     
     # Plot raw values
     plt.plot(values, alpha=0.3, color='blue', label='Raw')
@@ -167,8 +93,13 @@ def plot_learning_curve(values, window_size=100, title="", xlabel="", ylabel="",
     plt.grid(True, alpha=0.3)
     
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.close()
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.close()
+        except Exception as e:
+            print(f"Error saving plot to {save_path}: {e}")
+            plt.close()
     else:
         plt.show()
 
@@ -180,8 +111,14 @@ def save_object(obj, filepath):
         obj: Python object to save
         filepath (str): Path to save the object
     """
-    with open(filepath, 'wb') as f:
-        pickle.dump(obj, f)
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+        with open(filepath, 'wb') as f:
+            pickle.dump(obj, f)
+        return True
+    except Exception as e:
+        print(f"Error saving object to {filepath}: {e}")
+        return False
 
 def load_object(filepath):
     """
@@ -191,14 +128,22 @@ def load_object(filepath):
         filepath (str): Path to the saved object
         
     Returns:
-        The loaded Python object
+        The loaded Python object or None if loading fails
     """
-    with open(filepath, 'rb') as f:
-        return pickle.load(f)
+    try:
+        if not os.path.exists(filepath):
+            print(f"File not found: {filepath}")
+            return None
+            
+        with open(filepath, 'rb') as f:
+            return pickle.load(f)
+    except Exception as e:
+        print(f"Error loading object from {filepath}: {e}")
+        return None
 
 def plot_episode_stats(stats, save_dir=None, show=True):
     """
-    Plot various statistics from training.
+    Plot various statistics from Deep Q-Learning training.
     
     Args:
         stats (dict): Dictionary containing statistics lists:
@@ -209,12 +154,23 @@ def plot_episode_stats(stats, save_dir=None, show=True):
         save_dir (str): Directory to save plots, or None to not save
         show (bool): If True, display the plots
     """
+    # Check if we have data to plot
+    has_data = False
+    for key in ['episode_rewards', 'episode_lengths', 'episode_losses', 'episode_q_values']:
+        if key in stats and len(stats[key]) > 0:
+            has_data = True
+            break
+            
+    if not has_data:
+        print("No training statistics data to plot")
+        return
+        
     # Create figure with 2x2 subplots
     fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-    fig.suptitle('Training Statistics', fontsize=16)
+    fig.suptitle('Deep Q-Learning Training Statistics', fontsize=16)
     
     # Plot episode rewards
-    if 'episode_rewards' in stats:
+    if 'episode_rewards' in stats and len(stats['episode_rewards']) > 0:
         axes[0, 0].plot(stats['episode_rewards'])
         axes[0, 0].set_xlabel('Episode')
         axes[0, 0].set_ylabel('Total Reward')
@@ -230,36 +186,51 @@ def plot_episode_stats(stats, save_dir=None, show=True):
                            color='red',
                            label='Moving Average (100 episodes)')
             axes[0, 0].legend()
+    else:
+        axes[0, 0].text(0.5, 0.5, 'No reward data', horizontalalignment='center',
+                      verticalalignment='center', transform=axes[0, 0].transAxes)
     
     # Plot episode lengths
-    if 'episode_lengths' in stats:
+    if 'episode_lengths' in stats and len(stats['episode_lengths']) > 0:
         axes[0, 1].plot(stats['episode_lengths'])
         axes[0, 1].set_xlabel('Episode')
         axes[0, 1].set_ylabel('Steps')
         axes[0, 1].set_title('Episode Lengths')
+    else:
+        axes[0, 1].text(0.5, 0.5, 'No episode length data', horizontalalignment='center',
+                      verticalalignment='center', transform=axes[0, 1].transAxes)
     
     # Plot episode losses
-    if 'episode_losses' in stats:
+    if 'episode_losses' in stats and len(stats['episode_losses']) > 0:
         axes[1, 0].plot(stats['episode_losses'])
         axes[1, 0].set_xlabel('Episode')
         axes[1, 0].set_ylabel('Loss')
         axes[1, 0].set_title('Training Loss')
+    else:
+        axes[1, 0].text(0.5, 0.5, 'No loss data', horizontalalignment='center',
+                      verticalalignment='center', transform=axes[1, 0].transAxes)
     
     # Plot episode average Q-values
-    if 'episode_q_values' in stats:
+    if 'episode_q_values' in stats and len(stats['episode_q_values']) > 0:
         axes[1, 1].plot(stats['episode_q_values'])
         axes[1, 1].set_xlabel('Episode')
         axes[1, 1].set_ylabel('Average Q-Value')
         axes[1, 1].set_title('Q-Value Estimates')
+    else:
+        axes[1, 1].text(0.5, 0.5, 'No Q-value data', horizontalalignment='center',
+                      verticalalignment='center', transform=axes[1, 1].transAxes)
     
     # Adjust layout
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     
     # Save if requested
     if save_dir:
-        plt.savefig(os.path.join(save_dir, 'training_stats.png'), 
-                   dpi=300, 
-                   bbox_inches='tight')
+        try:
+            os.makedirs(save_dir, exist_ok=True)
+            save_path = os.path.join(save_dir, 'training_stats.png')
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        except Exception as e:
+            print(f"Error saving training statistics plot: {e}")
     
     # Show if requested, otherwise close
     if show:
