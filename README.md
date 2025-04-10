@@ -43,7 +43,7 @@ This project implements a Deep Q-Network (DQN) to play the Atari game "Ice Hocke
 
 1. Clone the repository 克隆倉庫：
    ```bash
-   git clone https://github.com/yourusername/dqn-ice-hockey.git
+   git clone https://github.com/yitzuliu/dqn-ice-hockey.git
    cd dqn-ice-hockey
    ```
 
