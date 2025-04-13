@@ -214,7 +214,7 @@ def plot_learning_curve(values, window_size=100, title="", xlabel="", ylabel="",
     
     plt.figure(figsize=(10, 6))
     
-    # Down-sample if too many points (for efficiency)
+        # Down-sample if too many points (for efficiency)
     if len(values) > max_points:
         skip = len(values) // max_points
         indices = np.arange(0, len(values), skip)

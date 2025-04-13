@@ -249,8 +249,8 @@ class DQNAgent:
             # Compute gradients
             loss.backward()
             
-            # Gradient clipping to prevent exploding gradients
-            torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=10.0)
+            # Gradient clipping to prevent exploding gradients - use config parameter
+            torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=config.GRAD_CLIP_NORM)
             
             # Update network weights
             self.optimizer.step()

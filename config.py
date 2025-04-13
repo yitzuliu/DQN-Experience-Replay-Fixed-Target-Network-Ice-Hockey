@@ -18,7 +18,6 @@ DQN 在 Atari 冰球遊戲上訓練的配置文件。
 # 基本環境設置
 ENV_NAME = 'ALE/IceHockey-v5'  # 遊戲環境名稱
 ACTION_SPACE_SIZE = 18  # IceHockey has 18 possible actions (冰球遊戲有18個可能的動作)
-OBS_TYPE = "rgb"  # Default observation type for ALE/IceHockey-v5 (默認觀察類型)
 
 # Game difficulty settings
 # 遊戲難度設置
@@ -47,43 +46,51 @@ TRAINING_MODE = True  # Ensure render_mode is None during training (確保訓練
 # 核心DQN參數
 LEARNING_RATE = 0.0001  # Standard learning rate for Adam optimizer (Adam優化器的標準學習率)
 GAMMA = 0.99  # Standard discount factor (標準折扣因子)
-BATCH_SIZE = 128  # Standard batch size (標準批次大小)
-MEMORY_CAPACITY = 200000  # Increased to 200K for better experience diversity (增加到20萬，提供更多樣化的經驗)
-TARGET_UPDATE_FREQUENCY = 10000  # Update target network every 10K steps (每1萬步更新一次目標網絡)
+BATCH_SIZE = 512  # Standard batch size (標準批次大小)
+MEMORY_CAPACITY = 200000  # for better experience diversity 
+TARGET_UPDATE_FREQUENCY = 8800  # Update target network 
 TRAINING_EPISODES = 10000  # Total number of training episodes (訓練總回合數)
 
 # Exploration parameters
 # 探索參數
 EPSILON_START = 1.0  # Initial exploration rate (初始探索率：完全隨機)
 EPSILON_END = 0.01  # Lower final exploration rate for better policy (最終較低的探索率，有利於更好的策略)
-EPSILON_DECAY = 500000  # Slower decay over more steps for better exploration (較慢的衰減速率，分佈更多步數以改善探索)
+EPSILON_DECAY = 400000  # Slower decay over more steps for better exploration (較慢的衰減速率，分佈更多步數以改善探索)
 DEFAULT_EVALUATE_MODE = False  # Default evaluation mode (默認評估模式)
 
 # Training control parameters
 # 訓練控制參數
-LEARNING_STARTS = 50000  # Wait for more experiences before starting learning (開始學習前等待的經驗數量)
-UPDATE_FREQUENCY = 4  # Standard update frequency (標準更新頻率)
-SAVE_FREQUENCY = 100  # Save more frequently to prevent data loss (頻繁保存以防止數據丟失)
+LEARNING_STARTS = 28000  # Wait for more experiences before starting learning (開始學習前等待的經驗數量)
+UPDATE_FREQUENCY = 1  # Standard update frequency (標準更新頻率)
+SAVE_FREQUENCY = 400  # Save more frequently to prevent data loss (頻繁保存以防止數據丟失)
 
 # Neural network settings
 # 神經網絡設置
-USE_ONE_CONV_LAYER = True  # Use 1 convolutional layer (使用1個卷積層)
+USE_ONE_CONV_LAYER = False  # Use 1 convolutional layer (使用1個卷積層)
 USE_TWO_CONV_LAYERS = False  # Use 2 convolutional layers (使用2個卷積層)
-USE_THREE_CONV_LAYERS = False  # Using full 3-layer architecture (hardware can handle it) (使用完整的3層架構，由硬件支持)
+USE_THREE_CONV_LAYERS = True  # Using full 3-layer architecture (hardware can handle it) (使用完整的3層架構，由硬件支持)
 
-# Gradient accumulation
-# 梯度累積
-GRADIENT_ACCUMULATION_STEPS = 1  # Default is 1 (no accumulation) (默認為1，不進行累積)
+# Network architecture parameters (previously hardcoded in q_network.py)
+# 網絡架構參數（之前在q_network.py中硬編碼）
+CONV1_CHANNELS = 32  # First convolutional layer output channels (第一卷積層輸出通道數)
+CONV1_KERNEL_SIZE = 8  # First convolutional layer kernel size (第一卷積層內核大小)
+CONV1_STRIDE = 4  # First convolutional layer stride (第一卷積層步幅)
 
-# Evaluation settings
-# 評估設置
-EVAL_EPISODES = 30  # More evaluation episodes for better statistics (更多評估回合以獲得更好的統計數據)
-EVAL_FREQUENCY = 500  # Evaluate every 500 episodes (每500回合進行一次評估)
+CONV2_CHANNELS = 64  # Second convolutional layer output channels (第二卷積層輸出通道數)
+CONV2_KERNEL_SIZE = 4  # Second convolutional layer kernel size (第二卷積層內核大小)
+CONV2_STRIDE = 2  # Second convolutional layer stride (第二卷積層步幅)
 
-# 添加定期評估設置
-EVAL_DURING_TRAINING = True  # 訓練過程中進行評估
-EVAL_EPISODES_TRAINING = 10  # 每次評估的回合數
-EVAL_FREQUENCY_TRAINING = 500  # 每訓練500回合進行一次評估
+CONV3_CHANNELS = 64  # Third convolutional layer output channels (第三卷積層輸出通道數)
+CONV3_KERNEL_SIZE = 3  # Third convolutional layer kernel size (第三卷積層內核大小)
+CONV3_STRIDE = 1  # Third convolutional layer stride (第三卷積層步幅)
+
+FC_SIZE = 512  # Size of fully connected layer (全連接層大小)
+GRAD_CLIP_NORM = 10.0  # Maximum gradient norm for gradient clipping (梯度裁剪的最大梯度范數)
+
+# Evaluation settings (used in evaluate.py)
+# 評估設置（在 evaluate.py 中使用）
+EVAL_EPISODES = 30  # Number of episodes for evaluation (評估的回合數)
+EVAL_FREQUENCY = 500  # How often to evaluate during training (training.py doesn't fully implement this) (訓練期間評估的頻率)
 
 ###############################
 # SYSTEM AND OPTIMIZATION
@@ -93,17 +100,4 @@ EVAL_FREQUENCY_TRAINING = 500  # 每訓練500回合進行一次評估
 # Memory optimization
 # 記憶體優化
 MEMORY_IMPLEMENTATION = "optimized"  # Using memory-efficient implementation (使用記憶體高效的實現)
-
-# GPU settings
-# GPU設置
-USE_GPU_PREPROCESSING = True  # Use GPU for frame preprocessing (使用GPU進行幀預處理)
-
-# Advanced features (disabled until implemented)
-# 高級功能（暫未實現）
-PRIORITIZED_REPLAY = False  # Disabled until PrioritizedReplayMemory is implemented (優先經驗回放，尚未實現)
-PRIORITIZED_REPLAY_ALPHA = 0.6  # Standard PER alpha (not used currently) (標準PER alpha值，目前未使用)
-PRIORITIZED_REPLAY_BETA_START = 0.4  # Starting beta value (not used currently) (起始beta值，目前未使用)
-PRIORITIZED_REPLAY_BETA_FRAMES = 100000  # Frames over which to anneal beta (not used currently) (beta退火的幀數，目前未使用)
-DUELING_NETWORK = False  # Disabled until Dueling Network architecture is implemented (對決網絡架構，尚未實現)
-DOUBLE_DQN = False  # Disabled until Double DQN logic is implemented (雙DQN邏輯，尚未實現)
 

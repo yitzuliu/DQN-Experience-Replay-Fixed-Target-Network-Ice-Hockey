@@ -132,14 +132,19 @@ All core components of the DQN algorithm have been successfully implemented and 
 
 ## Pseudocode
 1. Initialize replay memory D with capacity N
+
 2. Initialize action-value network Q (θ₁) with random weights
+
 3. Initialize target network Q_target (θ₂) ← θ₁
 
 4. For each episode = 1 to M:
+
     5. Initialize initial state S₁
 
     6. For t = 1 to T:
+
         7. With probability ε, select a random action Aₜ (exploration)
+
         8. Otherwise, select Aₜ = argmaxₐ Q(Sₜ, a; θ₁) (exploitation)
 
         9. Execute action Aₜ, observe reward Rₜ₊₁ and next state Sₜ₊₁
@@ -162,4 +167,24 @@ All core components of the DQN algorithm have been successfully implemented and 
 
     End For
 End For
+
+1. 初始化回放記憶體 D，容量 N
+2. 初始化 Q 網路 Q(θ₁)
+3. 初始化目標網路 Q_target(θ₂) ← θ₁
+4. For episode = 1 to M:
+    5. 初始化狀態 S₁
+    6. For t = 1 to T:
+        7. 以機率 ε 選擇隨機動作 Aₜ
+        8. 否則選擇 Aₜ = argmaxₐ Q(Sₜ, a; θ₁)
+        9. 執行 Aₜ，觀察 Rₜ₊₁ 和 Sₜ₊₁
+        10. 儲存 (Sₜ, Aₜ, Rₜ₊₁, Sₜ₊₁) 到 D
+        11. 從 D 抽樣批次
+        12. 對每個樣本 j：
+            如果 Sⱼ₊₁ 是終止狀態：
+                yⱼ ← Rⱼ₊₁
+            否則：
+                yⱼ ← Rⱼ₊₁ + γ maxₐ' Q_target(Sⱼ₊₁, a'; θ₂)
+        13. 損失：L = (yⱼ - Q(Sⱼ, Aⱼ; θ₁))²
+        14. 梯度下降：更新 θ₁
+    15. 每 C 步：θ₂ ← θ₁
 

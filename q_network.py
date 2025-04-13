@@ -61,18 +61,33 @@ class DQN(nn.Module):
         # --- Feature Extraction: Convolutional Layers ---
         
         # First convolutional layer (always used)
-        self.conv1 = nn.Conv2d(in_channels=c, out_channels=32, kernel_size=8, stride=4)
-        self.bn1 = nn.BatchNorm2d(32)  # Batch normalization for faster training
+        self.conv1 = nn.Conv2d(
+            in_channels=c, 
+            out_channels=config.CONV1_CHANNELS, 
+            kernel_size=config.CONV1_KERNEL_SIZE, 
+            stride=config.CONV1_STRIDE
+        )
+        self.bn1 = nn.BatchNorm2d(config.CONV1_CHANNELS)  # Batch normalization for faster training
         
         # Second convolutional layer (conditional)
         if use_two_layers or use_three_layers:
-            self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2)
-            self.bn2 = nn.BatchNorm2d(64)
+            self.conv2 = nn.Conv2d(
+                in_channels=config.CONV1_CHANNELS, 
+                out_channels=config.CONV2_CHANNELS, 
+                kernel_size=config.CONV2_KERNEL_SIZE, 
+                stride=config.CONV2_STRIDE
+            )
+            self.bn2 = nn.BatchNorm2d(config.CONV2_CHANNELS)
         
         # Third convolutional layer (conditional)
         if use_three_layers:
-            self.conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1)
-            self.bn3 = nn.BatchNorm2d(64)
+            self.conv3 = nn.Conv2d(
+                in_channels=config.CONV2_CHANNELS, 
+                out_channels=config.CONV3_CHANNELS, 
+                kernel_size=config.CONV3_KERNEL_SIZE, 
+                stride=config.CONV3_STRIDE
+            )
+            self.bn3 = nn.BatchNorm2d(config.CONV3_CHANNELS)
         
         # Calculate the size of the feature maps after convolutions
         # This calculation prevents hardcoding the size and adapts to input dimensions
@@ -81,10 +96,10 @@ class DQN(nn.Module):
         # --- Q-Value Estimation: Fully Connected Layers ---
         
         # First fully connected layer
-        self.fc1 = nn.Linear(in_features=conv_output_size, out_features=512)
+        self.fc1 = nn.Linear(in_features=conv_output_size, out_features=config.FC_SIZE)
         
         # Output layer: one value per action
-        self.fc2 = nn.Linear(in_features=512, out_features=n_actions)
+        self.fc2 = nn.Linear(in_features=config.FC_SIZE, out_features=n_actions)
         
         # Initialize weights using Kaiming/He initialization for better gradient flow
         self._initialize_weights()
@@ -114,26 +129,28 @@ class DQN(nn.Module):
         Returns:
             int: Flattened size of the convolutional output
         """
-        # First conv layer: 8x8 kernel, stride 4, no padding
-        h = (h - 8) // 4 + 1
-        w = (w - 8) // 4 + 1
+        # First conv layer
+        h = (h - config.CONV1_KERNEL_SIZE) // config.CONV1_STRIDE + 1
+        w = (w - config.CONV1_KERNEL_SIZE) // config.CONV1_STRIDE + 1
         
         if use_two_layers or use_three_layers:
-            # Second conv layer: 4x4 kernel, stride 2, no padding
-            h = (h - 4) // 2 + 1
-            w = (w - 4) // 2 + 1
+            # Second conv layer
+            h = (h - config.CONV2_KERNEL_SIZE) // config.CONV2_STRIDE + 1
+            w = (w - config.CONV2_KERNEL_SIZE) // config.CONV2_STRIDE + 1
         
         if use_three_layers:
-            # Third conv layer: 3x3 kernel, stride 1, no padding
-            h = (h - 3) // 1 + 1
-            w = (w - 3) // 1 + 1
+            # Third conv layer
+            h = (h - config.CONV3_KERNEL_SIZE) // config.CONV3_STRIDE + 1
+            w = (w - config.CONV3_KERNEL_SIZE) // config.CONV3_STRIDE + 1
         
-        # If using 3 layers, output has 64 channels
-        # If using 2 layers, output has 64 channels
-        # If using 1 layer, output has 32 channels
-        channels = 32
+        # If using 3 layers, output has CONV3_CHANNELS channels
+        # If using 2 layers, output has CONV2_CHANNELS channels
+        # If using 1 layer, output has CONV1_CHANNELS channels
+        channels = config.CONV1_CHANNELS
         if use_two_layers or use_three_layers:
-            channels = 64
+            channels = config.CONV2_CHANNELS
+        if use_three_layers:
+            channels = config.CONV3_CHANNELS
             
         return channels * h * w
     
