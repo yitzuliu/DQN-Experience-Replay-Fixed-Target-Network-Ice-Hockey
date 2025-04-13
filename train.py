@@ -59,7 +59,7 @@ def create_replay_memory(memory_type, capacity, state_shape):
         return OptimizedArrayReplayMemory(capacity=capacity, state_shape=state_shape)
 
 
-def train(device=None, render_training=False, output_dir=None, enable_recovery=True):
+def train(device=None, render_training=False, output_dir=None, enable_recovery=True, multi_gpu_trainer=None, agent=None, training_stats=None):
     """
     Train a DQN agent on Atari Ice Hockey.
     
@@ -72,6 +72,9 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
         render_training (bool): Whether to render training episodes (slower)
         output_dir (str, optional): Directory to save outputs (auto-generated if None)
         enable_recovery (bool): Enable automatic error recovery and checkpointing
+        multi_gpu_trainer (MultiGPUTrainer, optional): Multi-GPU trainer instance
+        agent (DQNAgent, optional): Pre-initialized agent (for resuming training)
+        training_stats (dict, optional): Pre-loaded training statistics (for resuming training)
         
     Returns:
         tuple: (trained agent, training statistics)
@@ -140,25 +143,38 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
     )
     
     # 6. Initialize agent - PSEUDOCODE LINES 2-3
-    print("Initializing DQN agent...")
-    agent = DQNAgent(
-        state_shape=state_shape,
-        n_actions=n_actions,
-        memory=memory,
-        device=device
-    )
+    if agent is None:
+        print("Initializing DQN agent...")
+        if multi_gpu_trainer is not None:
+            # Use multi-GPU trainer to create a parallelized agent
+            agent = multi_gpu_trainer.create_parallel_agent(
+                state_shape=state_shape,
+                n_actions=n_actions,
+                memory=memory
+            )
+        else:
+            # Regular single-GPU or CPU agent
+            agent = DQNAgent(
+                state_shape=state_shape,
+                n_actions=n_actions,
+                memory=memory,
+                device=device
+            )
     
     # 7. Initialize statistics tracking
-    stats = {
-        "episode_rewards": [],        # Total reward per episode
-        "episode_lengths": [],        # Number of steps per episode
-        "episode_losses": [],         # Average loss per episode
-        "episode_q_values": [],       # Average Q-values per episode
-        "epsilons": [],               # Epsilon values at the end of each episode
-        "learning_rate": config.LEARNING_RATE,
-        "start_time": time.time()     # Track training duration
-    }
-    
+    if training_stats is None:
+        stats = {
+            "episode_rewards": [],        # Total reward per episode
+            "episode_lengths": [],        # Number of steps per episode
+            "episode_losses": [],         # Average loss per episode
+            "episode_q_values": [],       # Average Q-values per episode
+            "epsilons": [],               # Epsilon values at the end of each episode
+            "learning_rate": config.LEARNING_RATE,
+            "start_time": time.time()     # Track training duration
+        }
+    else:
+        stats = training_stats
+
     # Ensure we save checkpoints more frequently for long training runs
     checkpoint_interval = min(50, config.SAVE_FREQUENCY)
     recovery_checkpoint_path = None
