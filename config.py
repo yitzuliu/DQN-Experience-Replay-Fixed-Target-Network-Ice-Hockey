@@ -46,8 +46,8 @@ TRAINING_MODE = True  # Ensure render_mode is None during training (確保訓練
 # 核心DQN參數
 LEARNING_RATE = 0.0001  # Standard learning rate for Adam optimizer (Adam優化器的標準學習率)
 GAMMA = 0.99  # Standard discount factor (標準折扣因子)
-BATCH_SIZE = 512  # Standard batch size (標準批次大小)
-MEMORY_CAPACITY = 200000  # for better experience diversity 
+BATCH_SIZE = 1024  # Increased batch size for RTX 3090 (為RTX 3090增加批次大小)
+MEMORY_CAPACITY = 500000  # Increased for better experience diversity with available GPU memory
 TARGET_UPDATE_FREQUENCY = 8800  # Update target network 
 TRAINING_EPISODES = 10000  # Total number of training episodes (訓練總回合數)
 
