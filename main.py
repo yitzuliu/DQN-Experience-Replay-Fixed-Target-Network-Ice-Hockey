@@ -41,7 +41,6 @@ def main():
     train_parser.add_argument("--render", action="store_true", help="Render training episodes")
     train_parser.add_argument("--gpu", action="store_true", help="Force GPU usage")
     train_parser.add_argument("--cpu", action="store_true", help="Force CPU usage")
-    train_parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint file")
     
     # === Evaluate command ===
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate a trained model")
@@ -87,19 +86,12 @@ def main():
         
         # Run training
         try:
-            if args.resume:
-                from resume import resume_training
-                trained_agent, stats = resume_training(
-                    checkpoint_path=args.resume,
-                    output_dir=args.output_dir
-                )
-            else:
-                trained_agent, stats = train(
-                    device=device,
-                    render_training=args.render,
-                    output_dir=args.output_dir,
-                    enable_recovery=True
-                )
+            trained_agent, stats = train(
+                device=device,
+                render_training=args.render,
+                output_dir=args.output_dir,
+                enable_recovery=True
+            )
             
             print("Training complete!")
         except KeyboardInterrupt:

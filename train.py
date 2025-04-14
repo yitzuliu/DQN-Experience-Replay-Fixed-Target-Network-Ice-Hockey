@@ -13,6 +13,28 @@ The training process consists of:
 5. Periodic model saving and statistics tracking
 
 Each step is thoroughly documented to help beginners understand the DQN algorithm.
+
+Pseudocode:
+1. Initialize replay memory D with capacity N
+2. Initialize action-value network Q (θ₁) with random weights
+3. Initialize target network Q_target (θ₂) ← θ₁
+4. For each episode = 1 to M:
+   5. Initialize initial state S₁
+   6. For t = 1 to T:
+      7. With probability ε, select a random action Aₜ (exploration)
+      8. Otherwise, select Aₜ = argmaxₐ Q(Sₜ, a; θ₁) (exploitation)
+      9. Execute action Aₜ, observe reward Rₜ₊₁ and next state Sₜ₊₁
+      10. Store transition (Sₜ, Aₜ, Rₜ₊₁, Sₜ₊₁) into replay buffer D
+      11. Sample a random minibatch of transitions from D
+      12. For each sample j in the minibatch:
+          If Sⱼ₊₁ is terminal:
+              yⱼ ← Rⱼ₊₁
+          Else:
+              yⱼ ← Rⱼ₊₁ + γ * maxₐ' Q_target(Sⱼ₊₁, a'; θ₂)
+      13. Perform gradient descent step to minimize:
+          L = (yⱼ - Q(Sⱼ, Aⱼ; θ₁))²
+      14. Every C steps:
+          Update target network: θ₂ ← θ₁
 """
 
 import os
@@ -59,7 +81,7 @@ def create_replay_memory(memory_type, capacity, state_shape):
         return OptimizedArrayReplayMemory(capacity=capacity, state_shape=state_shape)
 
 
-def train(device=None, render_training=False, output_dir=None, enable_recovery=True, multi_gpu_trainer=None, agent=None, training_stats=None):
+def train(device=None, render_training=False, output_dir=None, enable_recovery=True, agent=None, training_stats=None):
     """
     Train a DQN agent on Atari Ice Hockey.
     
@@ -72,7 +94,6 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
         render_training (bool): Whether to render training episodes (slower)
         output_dir (str, optional): Directory to save outputs (auto-generated if None)
         enable_recovery (bool): Enable automatic error recovery and checkpointing
-        multi_gpu_trainer (MultiGPUTrainer, optional): Multi-GPU trainer instance
         agent (DQNAgent, optional): Pre-initialized agent (for resuming training)
         training_stats (dict, optional): Pre-loaded training statistics (for resuming training)
         
@@ -134,34 +155,28 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
     print(f"Environment created: {config.ENV_NAME}")
     print(f"State shape: {state_shape}, Action space: {n_actions}")
     
-    # 5. Initialize replay memory - PSEUDOCODE LINE 1
-    print("Initializing replay memory...")
-    memory = create_replay_memory(
-        memory_type=config.MEMORY_IMPLEMENTATION,
-        capacity=config.MEMORY_CAPACITY,
-        state_shape=state_shape
-    )
-    
-    # 6. Initialize agent - PSEUDOCODE LINES 2-3
+    # 5. Initialize replay memory and agent only if not provided (new training session)
     if agent is None:
+        # PSEUDOCODE LINE 1: Initialize replay memory D with capacity N
+        print("Initializing replay memory...")
+        memory = create_replay_memory(
+            memory_type=config.MEMORY_IMPLEMENTATION,
+            capacity=config.MEMORY_CAPACITY,
+            state_shape=state_shape
+        )
+        
+        # PSEUDOCODE LINES 2-3: Initialize Q-network and target network
         print("Initializing DQN agent...")
-        if multi_gpu_trainer is not None:
-            # Use multi-GPU trainer to create a parallelized agent
-            agent = multi_gpu_trainer.create_parallel_agent(
-                state_shape=state_shape,
-                n_actions=n_actions,
-                memory=memory
-            )
-        else:
-            # Regular single-GPU or CPU agent
-            agent = DQNAgent(
-                state_shape=state_shape,
-                n_actions=n_actions,
-                memory=memory,
-                device=device
-            )
+        agent = DQNAgent(
+            state_shape=state_shape,
+            n_actions=n_actions,
+            memory=memory,
+            device=device
+        )
+    else:
+        print("Using pre-initialized agent (resuming training)")
     
-    # 7. Initialize statistics tracking
+    # 7. Initialize or use provided statistics tracking
     if training_stats is None:
         stats = {
             "episode_rewards": [],        # Total reward per episode
@@ -174,19 +189,11 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
         }
     else:
         stats = training_stats
+        print("Using pre-loaded training statistics (resuming training)")
 
     # Ensure we save checkpoints more frequently for long training runs
     checkpoint_interval = min(50, config.SAVE_FREQUENCY)
     recovery_checkpoint_path = None
-    
-    # Initialize recovery information
-    if enable_recovery:
-        recovery_info = {
-            "last_episode": 0,
-            "last_step": 0,
-            "last_checkpoint": None
-        }
-        recovery_info_path = os.path.join(log_dir, "recovery_info.json") if output_dir else None
     
     # Add a flag to indicate graceful shutdown requested
     shutdown_requested = False
@@ -280,14 +287,6 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
             if enable_recovery and episode % checkpoint_interval == 0:
                 recovery_checkpoint_path = os.path.join(model_dir, f"recovery_checkpoint.pth")
                 agent.save_model(recovery_checkpoint_path)
-                
-                # Update recovery info
-                if recovery_info_path:
-                    recovery_info["last_episode"] = episode
-                    recovery_info["last_step"] = step_count
-                    recovery_info["last_checkpoint"] = recovery_checkpoint_path
-                    with open(recovery_info_path, 'w') as f:
-                        json.dump(recovery_info, f)
             
             # Periodically clean GPU memory if using CUDA
             if device.type == 'cuda' and episode % 100 == 0:
@@ -390,10 +389,6 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
         print(f"\nUnexpected error during training: {str(e)}")
         import traceback
         traceback.print_exc()
-        
-        # Check recovery training functionality
-        if enable_recovery and recovery_checkpoint_path and os.path.exists(recovery_checkpoint_path):
-            print(f"\nTraining can be resumed from: {recovery_checkpoint_path}")
     finally:
         # Calculate and report training metrics
         total_time = time.time() - total_time_start
