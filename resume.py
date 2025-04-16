@@ -46,7 +46,7 @@ def create_replay_memory(memory_type, capacity, state_shape):
         return OptimizedArrayReplayMemory(capacity=capacity, state_shape=state_shape)
 
 
-def resume_training(checkpoint_path, output_dir=None, episodes=None, render_training=False, device=None):
+def resume_training(checkpoint_path, output_dir=None, episodes=None, render_training=False, device=None, enable_recovery=True):
     """
     Resume DQN training from a saved checkpoint.
     
@@ -57,6 +57,7 @@ def resume_training(checkpoint_path, output_dir=None, episodes=None, render_trai
         episodes (int, optional): Number of episodes to train for, overrides config value
         render_training (bool): Whether to render training episodes (slower)
         device (torch.device, optional): Device to use for training (auto-detected if None)
+        enable_recovery (bool): Enable automatic error recovery and checkpointing
     
     Returns:
         tuple: (trained_agent, training_statistics)
@@ -112,6 +113,7 @@ def resume_training(checkpoint_path, output_dir=None, episodes=None, render_trai
     
     # Try to load additional training stats if available
     stats = None
+    start_episode = None
     checkpoint_dir = os.path.dirname(checkpoint_path)
     possible_stats_files = [
         os.path.join(checkpoint_dir, "..", "logs", "training_stats.pkl"),
@@ -123,7 +125,9 @@ def resume_training(checkpoint_path, output_dir=None, episodes=None, render_trai
             print(f"Found training statistics at {stats_file}")
             stats = utils.load_object(stats_file)
             if stats:
-                print(f"Loaded stats with {len(stats.get('episode_rewards', []))} episodes recorded")
+                episodes_completed = len(stats.get('episode_rewards', []))
+                print(f"Loaded stats with {episodes_completed} episodes recorded")
+                start_episode = episodes_completed + 1
                 break
     
     if stats is None:
@@ -164,7 +168,10 @@ def resume_training(checkpoint_path, output_dir=None, episodes=None, render_trai
         config.TRAINING_EPISODES = episodes
     
     # Resume training
-    print(f"Resuming training for {config.TRAINING_EPISODES} more episodes...")
+    if start_episode:
+        print(f"Resuming training from episode {start_episode} for {config.TRAINING_EPISODES} total episodes...")
+    else:
+        print(f"Resuming training for {config.TRAINING_EPISODES} more episodes...")
     
     # Call the train function with the loaded agent and stats
     trained_agent, new_stats = train(
@@ -173,7 +180,8 @@ def resume_training(checkpoint_path, output_dir=None, episodes=None, render_trai
         output_dir=output_dir,
         agent=agent,  # Pass the loaded agent
         training_stats=stats,  # Pass loaded statistics
-        enable_recovery=True
+        enable_recovery=enable_recovery,
+        start_episode=start_episode  # Pass the starting episode number
     )
     
     # Restore original episodes setting
@@ -196,6 +204,8 @@ if __name__ == "__main__":
                       help="Render training episodes (slower)")
     parser.add_argument("--gpu", action="store_true", help="Force GPU usage")
     parser.add_argument("--cpu", action="store_true", help="Force CPU usage")
+    parser.add_argument("--enable_recovery", action="store_true",
+                      help="Enable automatic recovery checkpoints")
     args = parser.parse_args()
     
     # Determine device (CPU/GPU)
@@ -224,5 +234,6 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         episodes=args.episodes,
         render_training=args.render,
-        device=device
+        device=device,
+        enable_recovery=args.enable_recovery
     )

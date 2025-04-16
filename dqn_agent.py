@@ -120,14 +120,10 @@ class DQNAgent:
             evaluate = config.DEFAULT_EVALUATE_MODE
         
         # Decay epsilon value based on steps
-        # Modified decay strategy: Using cosine decay instead of linear decay
         if not evaluate:
+            # Only increment step counter when not in evaluation mode and not loading from checkpoint
             self.steps_done += 1
-            # Exponential decay formula: Maintains high exploration rate early, gradually decreases
-            # self.epsilon = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * \
-            #               math.exp(-1.0 * self.steps_done / self.epsilon_decay)
-            
-            # Alternative: Using cosine decay
+            # Modified decay strategy: Using cosine decay instead of linear decay
             progress = min(1.0, self.steps_done / self.epsilon_decay)
             self.epsilon = self.epsilon_end + 0.5 * (self.epsilon_start - self.epsilon_end) * \
                          (1 + math.cos(progress * math.pi))
@@ -349,6 +345,8 @@ class DQNAgent:
         self.steps_done = checkpoint.get('steps_done', 0)
         self.avg_q_values = checkpoint.get('avg_q_values', [])
         self.losses = checkpoint.get('losses', [])
+        
+        print(f"Model loaded with steps_done={self.steps_done} and epsilon={self.epsilon:.4f}")
         
         return True
     

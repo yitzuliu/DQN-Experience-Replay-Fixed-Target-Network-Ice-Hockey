@@ -81,7 +81,7 @@ def create_replay_memory(memory_type, capacity, state_shape):
         return OptimizedArrayReplayMemory(capacity=capacity, state_shape=state_shape)
 
 
-def train(device=None, render_training=False, output_dir=None, enable_recovery=True, agent=None, training_stats=None):
+def train(device=None, render_training=False, output_dir=None, enable_recovery=True, agent=None, training_stats=None, start_episode=None):
     """
     Train a DQN agent on Atari Ice Hockey.
     
@@ -96,6 +96,7 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
         enable_recovery (bool): Enable automatic error recovery and checkpointing
         agent (DQNAgent, optional): Pre-initialized agent (for resuming training)
         training_stats (dict, optional): Pre-loaded training statistics (for resuming training)
+        start_episode (int, optional): Episode to start from (for resuming training)
         
     Returns:
         tuple: (trained agent, training statistics)
@@ -191,6 +192,21 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
         stats = training_stats
         print("Using pre-loaded training statistics (resuming training)")
 
+    # Determine the starting episode
+    current_episode = 1
+    if start_episode is not None and start_episode > 1:
+        current_episode = start_episode
+        print(f"Resuming training from episode {current_episode}")
+    elif training_stats is not None and "episode_rewards" in training_stats:
+        current_episode = len(training_stats["episode_rewards"]) + 1
+        print(f"Continuing from episode {current_episode} based on loaded statistics")
+
+    # Calculate remaining episodes
+    remaining_episodes = config.TRAINING_EPISODES - (current_episode - 1)
+    if remaining_episodes <= 0:
+        print("Warning: Already completed all episodes. Setting to train 100 more episodes.")
+        remaining_episodes = 100
+
     # Ensure we save checkpoints more frequently for long training runs
     checkpoint_interval = min(50, config.SAVE_FREQUENCY)
     recovery_checkpoint_path = None
@@ -201,15 +217,18 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
     # ===== TRAINING LOOP =====
     
     # 8. Training loop - PSEUDOCODE LINE 4: For each episode = 1 to M
-    print(f"Starting training for {config.TRAINING_EPISODES} episodes...")
+    print(f"Starting training for {remaining_episodes} more episodes...")
     print(f"Will start learning after {config.LEARNING_STARTS} steps")
     print(f"Target network will update every {config.TARGET_UPDATE_FREQUENCY} steps")
-    step_count = 0
+    step_count = agent.steps_done if agent else 0
     best_reward = float("-inf")
+    if stats.get("episode_rewards"):
+        best_reward = max(stats["episode_rewards"])
+        print(f"Previous best reward: {best_reward:.2f}")
     total_time_start = time.time()
     
     # Use tqdm for progress bar
-    episode_iterator = tqdm(range(1, config.TRAINING_EPISODES + 1), desc="Training Progress", 
+    episode_iterator = tqdm(range(current_episode, current_episode + remaining_episodes), desc="Training Progress", 
                            disable=True)  # Disable tqdm progress bar
     try:
         for episode in episode_iterator:
@@ -273,7 +292,7 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
                 avg_q = np.mean(agent.avg_q_values[-1000:])
                 stats["episode_q_values"].append(avg_q)
             
-            print(f"Episode {episode}/{config.TRAINING_EPISODES} - "
+            print(f"Episode {episode}/{current_episode+remaining_episodes-1} - "
                   f"Total Steps: {step_count}, Reward: {episode_reward:.2f}, "
                   f"Loss: {avg_loss:.6f}, Epsilon: {agent.epsilon:.4f}, "
                   f"Time: {episode_duration:.2f}s")
@@ -283,7 +302,7 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
                 best_reward = episode_reward
                 agent.save_model(os.path.join(model_dir, "best_model.pth"))
             
-            # Additional auto-recovery checkpoints every 50 episodes
+            # Additional auto-recovery checkpoints every checkpoint_interval episodes
             if enable_recovery and episode % checkpoint_interval == 0:
                 recovery_checkpoint_path = os.path.join(model_dir, f"recovery_checkpoint.pth")
                 agent.save_model(recovery_checkpoint_path)
@@ -447,6 +466,7 @@ if __name__ == "__main__":
     parser.add_argument("--learning_starts", type=int, default=config.LEARNING_STARTS, 
                        help="Steps before starting learning")
     parser.add_argument("--enable_recovery", action="store_true", help="Enable automatic recovery mechanism")
+    parser.add_argument("--start_episode", type=int, default=None, help="Episode to start from (for resuming training)")
     args = parser.parse_args()
     
     # Override config if specified through command line
@@ -498,7 +518,8 @@ if __name__ == "__main__":
             device=device,
             render_training=args.render,
             output_dir=args.output_dir,
-            enable_recovery=args.enable_recovery
+            enable_recovery=args.enable_recovery,
+            start_episode=args.start_episode
         )
         
         print("Training complete!")
