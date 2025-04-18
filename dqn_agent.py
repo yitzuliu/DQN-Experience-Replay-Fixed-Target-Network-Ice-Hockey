@@ -84,6 +84,7 @@ class DQNAgent:
         
         # Initialize epsilon for exploration-exploitation tradeoff
         self.epsilon = config.EPSILON_START
+        self.epsilon_start = config.EPSILON_START
         self.epsilon_end = config.EPSILON_END
         self.epsilon_decay = config.EPSILON_DECAY
         
@@ -364,94 +365,3 @@ class DQNAgent:
             'avg_loss': np.mean(self.losses[-1000:]) if self.losses else 0,
         }
         return stats
-    
-    @property
-    def epsilon_start(self):
-        """Return the starting epsilon value from config"""
-        return config.EPSILON_START
-
-
-# Testing code
-if __name__ == "__main__":
-    import time
-    from replay_memory import OptimizedArrayReplayMemory
-    
-    # Display system information
-    system_info = utils.get_system_info()
-    print("System Information:")
-    print(f"OS: {system_info['os']} with PyTorch {system_info['torch_version']}")
-    
-    if system_info.get('cuda_available', False):
-        print(f"GPU: {system_info.get('gpu_name', 'Unknown')} "
-              f"({system_info.get('gpu_memory_gb', 'Unknown')} GB)")
-    elif system_info.get('mps_available', False):
-        print("GPU: Apple Silicon (Metal)")
-    else:
-        print("No GPU detected, using CPU only")
-    
-    # Create sample state and replay memory
-    state_shape = (config.FRAME_STACK, config.FRAME_HEIGHT, config.FRAME_WIDTH)
-    memory = OptimizedArrayReplayMemory(
-        capacity=10000,
-        state_shape=state_shape
-    )
-    
-    # Create DQN agent
-    agent = DQNAgent(
-        state_shape=state_shape,
-        n_actions=config.ACTION_SPACE_SIZE,
-        memory=memory
-    )
-    
-    # Test action selection
-    print("\nTesting action selection...")
-    test_state = np.random.rand(*state_shape).astype(np.float32)
-    
-    # Test exploratory action
-    agent.epsilon = 1.0  # Force exploration
-    action = agent.select_action(test_state)
-    print(f"Exploratory action (ε=1.0): {action}")
-    
-    # Test exploitative action
-    agent.epsilon = 0.0  # Force exploitation
-    action = agent.select_action(test_state)
-    print(f"Exploitative action (ε=0.0): {action}")
-    
-    # Test experience storage and learning
-    print("\nTesting experience storage and learning...")
-    
-    # Fill memory with some random transitions
-    for i in range(config.BATCH_SIZE * 2):
-        state = np.random.rand(*state_shape).astype(np.float32)
-        action = random.randint(0, config.ACTION_SPACE_SIZE - 1)
-        reward = random.uniform(-1, 1)
-        next_state = np.random.rand(*state_shape).astype(np.float32)
-        done = random.random() > 0.8
-        
-        agent.store_transition(state, action, reward, next_state, done)
-    
-    # Test learning step
-    start_time = time.time()
-    loss = agent.learn()
-    end_time = time.time()
-    
-    print(f"Learning step completed in {(end_time - start_time)*1000:.2f}ms with loss: {loss:.6f}")
-    
-    # Test target network update
-    start_time = time.time()
-    agent.update_target_network()
-    end_time = time.time()
-    
-    print(f"Target network updated in {(end_time - start_time)*1000:.2f}ms")
-    
-    # Test model saving and loading
-    test_save_path = "models/test_model.pth"
-    os.makedirs(os.path.dirname(test_save_path), exist_ok=True)
-    agent.save_model(test_save_path)
-    agent.load_model(test_save_path)
-    
-    # Clean up test file
-    if os.path.exists(test_save_path):
-        os.remove(test_save_path)
-    
-    print("\nAll DQN agent tests completed successfully!")

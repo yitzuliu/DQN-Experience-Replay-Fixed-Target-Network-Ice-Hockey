@@ -38,7 +38,8 @@ import random      # For random sampling
 import numpy as np  # For array operations
 import torch       # PyTorch library for tensor operations
 import config      # Configuration file for hyperparameters
-import gc          # Garbage collection for memory management
+import gc          # Garbage collection
+import utils       # Utility functions, including clean_memory
 
 class ListReplayMemory:
     """
@@ -168,11 +169,11 @@ class ListReplayMemory:
     
     def clear(self):
         """
-        Clear the memory buffer to free up memory.
+        Clear the memory buffer and free resources.
         """
-        self.memory = []
+        self.memory.clear()
         self.position = 0
-        gc.collect()  # Force garbage collection
+        utils.clean_memory()
 
 
 class ArrayReplayMemory:
@@ -283,15 +284,11 @@ class ArrayReplayMemory:
     
     def clear(self):
         """
-        Clear memory to free up RAM.
+        Clear the replay buffer and free resources.
         """
-        # Reset counter and position
         self.counter = 0
         self.position = 0
-        
-        # Instead of recreating arrays, just reset index trackers
-        # This avoids memory fragmentation
-        gc.collect()  # Force garbage collection
+        utils.clean_memory()
 
 
 class OptimizedArrayReplayMemory:
@@ -446,10 +443,10 @@ class OptimizedArrayReplayMemory:
         return len(self) >= batch_size
     
     def clear(self):
-        """Clear memory and free resources."""
+        """Clear the replay buffer and free resources."""
         self.counter = 0
         self.position = 0
-        gc.collect()  # Force garbage collection
+        utils.clean_memory()
         
     def memory_usage(self):
         """

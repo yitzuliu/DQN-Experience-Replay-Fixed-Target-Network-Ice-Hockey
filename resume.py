@@ -21,6 +21,7 @@ from train import train
 from dqn_agent import DQNAgent
 from replay_memory import OptimizedArrayReplayMemory, ArrayReplayMemory, ListReplayMemory
 import env_wrappers
+from logger import Logger  # Import the new minimal logger
 
 
 def create_replay_memory(memory_type, capacity, state_shape):

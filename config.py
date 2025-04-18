@@ -101,3 +101,9 @@ EVAL_FREQUENCY = 500  # How often to evaluate during training (training.py doesn
 # 記憶體優化
 MEMORY_IMPLEMENTATION = "optimized"  # Using memory-efficient implementation (使用記憶體高效的實現)
 
+# Memory cleaning settings
+# Percentage of system memory usage above which to trigger cleaning
+MEMORY_CLEAN_THRESHOLD = 80.0  # Trigger clean_memory when memory usage > threshold (%)
+# Frequency (in training steps) to check memory usage
+MEMORY_CHECK_STEPS = 10000  # Check memory every N training steps
+

@@ -41,6 +41,7 @@ def main():
     train_parser.add_argument("--render", action="store_true", help="Render training episodes")
     train_parser.add_argument("--gpu", action="store_true", help="Force GPU usage")
     train_parser.add_argument("--cpu", action="store_true", help="Force CPU usage")
+    train_parser.add_argument("--enable_recovery", action="store_true", help="Enable automatic recovery checkpoints")
     
     # === Evaluate command ===
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate a trained model")
@@ -90,7 +91,7 @@ def main():
                 device=device,
                 render_training=args.render,
                 output_dir=args.output_dir,
-                enable_recovery=True
+                enable_recovery=args.enable_recovery
             )
             
             print("Training complete!")

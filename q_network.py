@@ -20,9 +20,7 @@ Hardware optimizations:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 import config
-import utils
 
 
 class DQN(nn.Module):
@@ -269,98 +267,4 @@ def create_q_network(input_shape, n_actions, device=None):
         torch.backends.cudnn.benchmark = True
         
     return network
-
-
-# Testing code for quick verification
-if __name__ == "__main__":
-    # Display system information
-    system_info = utils.get_system_info()
-    print(f"Testing Q-Network on {system_info['os']} with PyTorch {system_info['torch_version']}")
-    
-    # Get device (CPU/GPU)
-    device = utils.get_device()
-    print(f"Using device: {device}")
-    
-    # Parameters from typical Atari preprocessing
-    input_channels = config.FRAME_STACK  # Typically 4 stacked frames
-    input_height = config.FRAME_HEIGHT   # Typically 84
-    input_width = config.FRAME_WIDTH     # Typically 84
-    n_actions = config.ACTION_SPACE_SIZE # 18 for Ice Hockey
-    
-    # Test network creation
-    print("\nTesting network creation:")
-    
-    # Test with 1 convolutional layer
-    net1 = DQN(
-        input_shape=(input_channels, input_height, input_width),
-        n_actions=n_actions,
-        device=device,
-        use_two_layers=False,
-        use_three_layers=False
-    )
-    print("1-layer network created successfully")
-    
-    # Test with 2 convolutional layers
-    net2 = DQN(
-        input_shape=(input_channels, input_height, input_width),
-        n_actions=n_actions,
-        device=device,
-        use_two_layers=True,
-        use_three_layers=False
-    )
-    print("2-layer network created successfully")
-    
-    # Test with 3 convolutional layers
-    net3 = DQN(
-        input_shape=(input_channels, input_height, input_width),
-        n_actions=n_actions,
-        device=device,
-        use_two_layers=False,
-        use_three_layers=True
-    )
-    print("3-layer network created successfully")
-    
-    # Test default network creation through factory function
-    default_net = create_q_network(
-        input_shape=(input_channels, input_height, input_width),
-        n_actions=n_actions
-    )
-    print("Default network from factory function created successfully")
-    
-    # Test forward pass
-    print("\nTesting forward pass:")
-    batch_size = 32
-    test_input = torch.randn(batch_size, input_channels, input_height, input_width)
-    
-    # Test on CPU first to avoid potential GPU memory issues
-    with torch.no_grad():
-        test_input = test_input.to(device)
-        output = default_net(test_input)
-    
-    print(f"Input shape: {test_input.shape}")
-    print(f"Output shape: {output.shape}")
-    print(f"Output norm: {output.norm().item():.4f}")
-    print(f"Output range: [{output.min().item():.4f}, {output.max().item():.4f}]")
-    
-    # Measure single-batch inference time
-    import time
-    n_trials = 100
-    
-    start_time = time.time()
-    with torch.no_grad():
-        for _ in range(n_trials):
-            _ = default_net(test_input)
-    
-    # Calculate metrics
-    elapsed = time.time() - start_time
-    avg_time_ms = (elapsed / n_trials) * 1000
-    
-    # Memory usage info
-    if hasattr(torch.cuda, 'memory_allocated') and torch.cuda.is_available():
-        memory_mb = torch.cuda.memory_allocated() / (1024 * 1024)
-        print(f"\nGPU memory used: {memory_mb:.2f} MB")
-    
-    print(f"Avg. inference time: {avg_time_ms:.2f} ms per batch")
-    print(f"Total parameters: {sum(p.numel() for p in default_net.parameters()):,}")
-    print("\nQ-Network test completed successfully")
 

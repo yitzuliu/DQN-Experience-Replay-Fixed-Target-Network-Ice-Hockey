@@ -44,14 +44,14 @@ import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import pickle
-from datetime import datetime
-import json
 
 import env_wrappers
 from dqn_agent import DQNAgent
 from replay_memory import OptimizedArrayReplayMemory, ArrayReplayMemory, ListReplayMemory
 import config
 import utils
+# Import the new minimal logger
+from logger import Logger
 
 
 def create_replay_memory(memory_type, capacity, state_shape):
@@ -177,29 +177,38 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
     else:
         print("Using pre-initialized agent (resuming training)")
     
-    # 7. Initialize or use provided statistics tracking
-    if training_stats is None:
-        stats = {
-            "episode_rewards": [],        # Total reward per episode
-            "episode_lengths": [],        # Number of steps per episode
-            "episode_losses": [],         # Average loss per episode
-            "episode_q_values": [],       # Average Q-values per episode
-            "epsilons": [],               # Epsilon values at the end of each episode
-            "learning_rate": config.LEARNING_RATE,
-            "start_time": time.time()     # Track training duration
-        }
-    else:
-        stats = training_stats
-        print("Using pre-loaded training statistics (resuming training)")
-
-    # Determine the starting episode
+    # 6. Initialize the logger for tracking stats and visualization
+    # Use save_frequency aligned with SAVE_FREQUENCY config
+    save_frequency = min(100, config.SAVE_FREQUENCY)
+    logger = Logger(run_dir=output_dir, save_frequency=save_frequency)
+    
+    # 7. Determine the starting episode
     current_episode = 1
     if start_episode is not None and start_episode > 1:
         current_episode = start_episode
         print(f"Resuming training from episode {current_episode}")
     elif training_stats is not None and "episode_rewards" in training_stats:
+        # For backward compatibility with existing stats
         current_episode = len(training_stats["episode_rewards"]) + 1
         print(f"Continuing from episode {current_episode} based on loaded statistics")
+        
+        # If resuming with old statistics format, add them to logger's plot data
+        if len(training_stats.get("episode_rewards", [])) > 0:
+            for i, (reward, length, loss, epsilon) in enumerate(zip(
+                training_stats["episode_rewards"],
+                training_stats.get("episode_lengths", [0] * len(training_stats["episode_rewards"])),
+                training_stats.get("episode_losses", [0] * len(training_stats["episode_rewards"])),
+                training_stats.get("epsilons", [0] * len(training_stats["episode_rewards"]))
+            )):
+                logger.plot_data["rewards"].append(reward)
+                logger.plot_data["lengths"].append(length)
+                logger.plot_data["losses"].append(loss)
+                logger.plot_data["epsilons"].append(epsilon)
+            
+            # Update best reward
+            logger.best_reward = max(training_stats["episode_rewards"])
+            logger.episode_count = len(training_stats["episode_rewards"])
+            print(f"Loaded {logger.episode_count} episodes of history, best reward: {logger.best_reward:.1f}")
 
     # Calculate remaining episodes
     remaining_episodes = config.TRAINING_EPISODES - (current_episode - 1)
@@ -221,9 +230,8 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
     print(f"Will start learning after {config.LEARNING_STARTS} steps")
     print(f"Target network will update every {config.TARGET_UPDATE_FREQUENCY} steps")
     step_count = agent.steps_done if agent else 0
-    best_reward = float("-inf")
-    if stats.get("episode_rewards"):
-        best_reward = max(stats["episode_rewards"])
+    best_reward = logger.best_reward
+    if best_reward != float("-inf"):
         print(f"Previous best reward: {best_reward:.2f}")
     total_time_start = time.time()
     
@@ -274,6 +282,13 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
                 if step_count % config.TARGET_UPDATE_FREQUENCY == 0:
                     agent.update_target_network()
                     
+                # Periodically check system memory usage every N steps and clean if above threshold
+                if step_count % config.MEMORY_CHECK_STEPS == 0:
+                    mem_usage = utils.memory_stats().get("system_used_percent")
+                    if mem_usage is not None and mem_usage > config.MEMORY_CLEAN_THRESHOLD:
+                        print(f"Step {step_count}: memory usage {mem_usage:.1f}% > {config.MEMORY_CLEAN_THRESHOLD}%, cleaning memory...")
+                        utils.clean_memory()
+                
                 # Move to next state
                 state = next_state
             
@@ -281,11 +296,26 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
             episode_duration = time.time() - episode_start_time
             avg_loss = np.mean(episode_loss) if episode_loss else 0
             
-            # Track statistics
-            stats["episode_rewards"].append(episode_reward)
-            stats["episode_lengths"].append(episode_length)
-            stats["episode_losses"].append(avg_loss)
-            stats["epsilons"].append(agent.epsilon)
+            # Track statistics using the logger
+            logger.log_episode(
+                reward=episode_reward,
+                length=episode_length,
+                loss=avg_loss,
+                epsilon=agent.epsilon
+            )
+            
+            # For compatibility with return stats dict 
+            # (temporary - until all code is migrated to use logger directly)
+            # We still maintain the old stats dict format
+            stats = {
+                "episode_rewards": logger.plot_data["rewards"],
+                "episode_lengths": logger.plot_data["lengths"],
+                "episode_losses": logger.plot_data["losses"],
+                "epsilons": logger.plot_data["epsilons"],
+                "episode_q_values": [],  # For compatibility
+                "learning_rate": config.LEARNING_RATE,
+                "start_time": total_time_start
+            }
             
             # Get Q-values (last 1000 only to save memory)
             if agent.avg_q_values:
@@ -297,91 +327,31 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
                   f"Loss: {avg_loss:.6f}, Epsilon: {agent.epsilon:.4f}, "
                   f"Time: {episode_duration:.2f}s")
             
-            # Modify the best model message to be more minimal
+            # Save model when we get a new best reward
             if episode_reward > best_reward:
                 best_reward = episode_reward
                 agent.save_model(os.path.join(model_dir, "best_model.pth"))
+                print(f"New best reward: {best_reward:.2f} - Model saved")
             
             # Additional auto-recovery checkpoints every checkpoint_interval episodes
             if enable_recovery and episode % checkpoint_interval == 0:
                 recovery_checkpoint_path = os.path.join(model_dir, f"recovery_checkpoint.pth")
                 agent.save_model(recovery_checkpoint_path)
             
-            # Periodically clean GPU memory if using CUDA
-            if device.type == 'cuda' and episode % 100 == 0:
-                torch.cuda.empty_cache()
-            
             # Periodically save checkpoint and visualize progress
             if episode % config.SAVE_FREQUENCY == 0:
+                # Save model
+                model_path = os.path.join(model_dir, f"model_ep{episode}.pth")
+                agent.save_model(model_path)
+                print(f"Checkpoint saved to {model_path}")
+                
+                # Generate and save plots without saving plot data
+                # (the data is kept in memory but the plots are saved to disk)
                 try:
-                    # Save model checkpoint
-                    checkpoint_path = os.path.join(model_dir, f"model_ep{episode}.pth")
-                    if agent.save_model(checkpoint_path):
-                        print(f"Model checkpoint saved to {checkpoint_path}")
-                    
-                    # Save statistics (using pickle for efficiency)
-                    stats_file = os.path.join(log_dir, "training_stats.pkl")
-                    if utils.save_object(stats, stats_file):
-                        print(f"Training stats saved to {stats_file}")
-                    
-                    # Also save as JSON for easier inspection
-                    try:
-                        # Convert numpy arrays to lists for JSON serialization
-                        json_stats = {}
-                        for key, value in stats.items():
-                            if isinstance(value, list) and len(value) > 0:
-                                # If list contains numpy values, convert them
-                                if hasattr(value[0], 'item'):
-                                    json_stats[key] = [float(x) for x in value]
-                                else:
-                                    json_stats[key] = value
-                            elif hasattr(value, 'item'):
-                                json_stats[key] = float(value)
-                            else:
-                                json_stats[key] = value
-                        
-                        # Save only most recent values to keep file size manageable
-                        for key in ['episode_rewards', 'episode_lengths', 'episode_losses', 'episode_q_values', 'epsilons']:
-                            if key in json_stats and len(json_stats[key]) > 1000:
-                                json_stats[key + "_recent"] = json_stats[key][-1000:]
-                                
-                        json_file = os.path.join(log_dir, "training_stats.json")
-                        with open(json_file, 'w') as f:
-                            json.dump(json_stats, f, indent=2)
-                    except Exception as e:
-                        print(f"Warning: Could not save stats as JSON: {e}")
-                    
-                    # Update plots
-                    if len(stats["episode_rewards"]) > 0:
-                        try:
-                            # Plot rewards
-                            utils.plot_learning_curve(
-                                values=stats["episode_rewards"],
-                                window_size=100,
-                                title=f"Episode Rewards (Episode {episode})",
-                                xlabel="Episode",
-                                ylabel="Reward",
-                                save_path=os.path.join(viz_dir, "rewards.png")
-                            )
-                            
-                            # Plot losses if any
-                            if any(stats["episode_losses"]):
-                                utils.plot_learning_curve(
-                                    values=stats["episode_losses"],
-                                    window_size=100,
-                                    title=f"Training Loss (Episode {episode})",
-                                    xlabel="Episode",
-                                    ylabel="Loss",
-                                    save_path=os.path.join(viz_dir, "losses.png")
-                                )
-                                
-                            # Generate combined plots
-                            utils.plot_episode_stats(stats, save_dir=viz_dir, show=False)
-                            print(f"Plots updated in {viz_dir}")
-                        except Exception as e:
-                            print(f"Warning: Error generating plots: {e}")
+                    logger.plot()
+                    print(f"Plots updated in {viz_dir}")
                 except Exception as e:
-                    print(f"Warning: Error during periodic saving at episode {episode}: {e}")
+                    print(f"Warning: Error generating plots: {e}")
             
             # Check if shutdown was requested
             if shutdown_requested:
@@ -420,20 +390,12 @@ def train(device=None, render_training=False, output_dir=None, enable_recovery=T
         agent.save_model(final_model_path)
         print(f"Final model saved to {final_model_path}")
         
-        # Save final statistics with error handling
+        # Generate final plots
         try:
-            final_stats_path = os.path.join(log_dir, "final_stats.pkl")
-            if utils.save_object(stats, final_stats_path):
-                print(f"Final statistics saved to {final_stats_path}")
-                
-            # Generate final visualizations with error handling
-            try:
-                utils.plot_episode_stats(stats, save_dir=viz_dir, show=False)
-                print(f"Final plots saved to {viz_dir}")
-            except Exception as e:
-                print(f"Warning: Could not generate final plots: {e}")
+            logger.plot()
+            print(f"Final plots saved to {viz_dir}")
         except Exception as e:
-            print(f"Warning: Error saving final statistics: {e}")
+            print(f"Warning: Could not generate final plots: {e}")
         
         # Clean up resources
         env.close()

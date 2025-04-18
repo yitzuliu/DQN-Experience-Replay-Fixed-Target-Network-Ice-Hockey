@@ -134,18 +134,16 @@ def create_directories(base_dir="./results"):
     model_dir = os.path.join(run_dir, "models")
     log_dir = os.path.join(run_dir, "logs")
     viz_dir = os.path.join(run_dir, "visualizations")
-    checkpoint_dir = os.path.join(run_dir, "checkpoints")
     
     # Ensure directories exist
-    for directory in [run_dir, model_dir, log_dir, viz_dir, checkpoint_dir]:
+    for directory in [run_dir, model_dir, log_dir, viz_dir]:
         os.makedirs(directory, exist_ok=True)
     
     paths = {
         "run": run_dir,
         "models": model_dir,
         "logs": log_dir,
-        "viz": viz_dir,
-        "checkpoints": checkpoint_dir
+        "viz": viz_dir
     }
     
     return paths
@@ -380,4 +378,19 @@ def plot_episode_stats(stats, save_dir=None, show=True):
         plt.show()
     else:
         plt.close()
+
+def save_model_and_stats(agent, stats, model_path, stats_path):
+    """
+    Save agent model and training statistics in one call.
+
+    Args:
+        agent: DQNAgent instance with save_model method
+        stats: dict of training statistics
+        model_path: filepath for saving model checkpoint (.pth)
+        stats_path: filepath for saving stats (.pkl)
+    """
+    # Save model
+    agent.save_model(model_path)
+    # Save stats
+    save_object(stats, stats_path)
 
